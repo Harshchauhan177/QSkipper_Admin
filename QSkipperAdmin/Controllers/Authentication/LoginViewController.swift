@@ -408,39 +408,20 @@ class LoginControllerViewModel: ObservableObject {
         DebugLogger.shared.log("Starting login process with email: \(email)", category: .auth)
         
         Task {
-            do {
-                // Use restaurant login endpoint directly
-                let response = try await AuthService.shared.loginRestaurantDirect(email: email, password: password)
+            let success = await SupabaseAuthService.shared.signIn(email: email, password: password)
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.isLoading = false
                 
-                DebugLogger.shared.log("Login completed successfully", category: .auth)
-                
-                // Update DataController with the response if available
-                if let response = response {
-                    DispatchQueue.main.async {
-                        DataController.shared.setCurrentUser(from: response)
-                        DebugLogger.shared.log("DataController updated with user info", category: .auth)
-                    }
-                }
-                
-                DispatchQueue.main.async { [weak self] in
-                    self?.isLoading = false
-                    
-                    // Check if we have a user ID, which confirms successful login
-                    if AuthService.shared.getUserId() != nil {
-                        self?.navigateToHome = true
-                        DebugLogger.shared.log("Login successful, navigating to home", category: .auth)
-                    } else {
-                        self?.errorMessage = "Failed to get user ID after login"
-                        self?.showErrorAlert = true
-                        DebugLogger.shared.log("Login failed: No user ID returned", category: .auth)
-                    }
-                }
-            } catch {
-                DebugLogger.shared.log("Login error: \(error.localizedDescription)", category: .auth)
-                DispatchQueue.main.async { [weak self] in
-                    self?.isLoading = false
-                    self?.errorMessage = error.localizedDescription
+                if success {
+                    // Also update old AuthService for compatibility
+                    AuthService.shared.isAuthenticated = true
+                    self?.navigateToHome = true
+                    DebugLogger.shared.log("Supabase login successful, navigating to home", category: .auth)
+                } else {
+                    self?.errorMessage = SupabaseAuthService.shared.errorMessage.isEmpty ? "Login failed" : SupabaseAuthService.shared.errorMessage
                     self?.showErrorAlert = true
+                    DebugLogger.shared.log("Supabase login failed", category: .auth)
                 }
             }
         }

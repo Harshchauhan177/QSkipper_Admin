@@ -92,7 +92,7 @@ class ModernOrdersViewModel: ObservableObject {
     
     // MARK: - Public Methods
     
-    /// Load all orders from the API
+    /// Load all orders from Supabase
     func loadOrders() async {
         await MainActor.run {
             isLoading = true
@@ -100,38 +100,30 @@ class ModernOrdersViewModel: ObservableObject {
         }
         
         do {
-            let fetchedOrders = try await OrderApi.shared.getAllOrders()
+            let supabaseOrders = try await SupabaseOrderApi.shared.getAllOrders()
+            
+            // Convert SupabaseOrder to APIOrder for view compatibility
+            let convertedOrders = supabaseOrders.map { self.convertToAPIOrder($0) }
             
             await MainActor.run {
-                self.orders = fetchedOrders
+                self.orders = convertedOrders
                 self.isLoading = false
-                DebugLogger.shared.log("Loaded \(fetchedOrders.count) orders", category: .app)
-                if !fetchedOrders.isEmpty {
-                    DebugLogger.shared.log("Sample order status: \(fetchedOrders[0].status)", category: .app)
+                DebugLogger.shared.log("Loaded \(convertedOrders.count) orders from Supabase", category: .app)
+                if !convertedOrders.isEmpty {
+                    DebugLogger.shared.log("Sample order status: \(convertedOrders[0].status)", category: .app)
                 }
             }
         } catch {
             await MainActor.run {
-                self.orders = [] // Ensure we have an empty array for no orders
+                self.orders = []
                 self.errorMessage = error.localizedDescription
                 
-                // Don't show an error alert for "not found" errors since that's handled by the UI
-                if let apiError = error as? OrderApiError {
-                    switch apiError {
-                    case .orderNotFound:
-                        // Don't show an error for no orders found
-                        self.showError = false
-                        DebugLogger.shared.log("No orders found (handled gracefully)", category: .app)
-                    default:
-                        self.showError = true
-                    }
-                } else if error.localizedDescription.contains("not found") || 
-                         error.localizedDescription.contains("No orders") {
-                    // Also don't show errors with "not found" in the message
+                if error.localizedDescription.contains("not found") || 
+                   error.localizedDescription.contains("No orders") ||
+                   error.localizedDescription.contains("0 rows") {
                     self.showError = false
-                    DebugLogger.shared.log("No orders found message detected (handled gracefully)", category: .app)
+                    DebugLogger.shared.log("No orders found (handled gracefully)", category: .app)
                 } else {
-                    // Only show error alert for actual errors, not for "no orders" state
                     self.showError = true
                     DebugLogger.shared.log("Error loading orders: \(error.localizedDescription)", category: .error)
                 }
@@ -139,6 +131,31 @@ class ModernOrdersViewModel: ObservableObject {
                 self.isLoading = false
             }
         }
+    }
+    
+    /// Convert SupabaseOrder to APIOrder for view compatibility
+    private func convertToAPIOrder(_ order: SupabaseOrder) -> APIOrder {
+        let items = (order.orderItems ?? []).map { item in
+            APIOrderProduct(
+                id: item.id ?? "",
+                name: item.name,
+                quantity: item.quantity,
+                price: Int(item.price)
+            )
+        }
+        
+        return APIOrder(
+            id: order.id ?? "",
+            restaurantId: order.restaurantId,
+            userId: order.userId,
+            items: items,
+            totalAmount: String(format: "%.2f", order.totalAmount),
+            status: order.status,
+            cookTime: order.cookTime,
+            takeAway: order.takeAway,
+            scheduleDate: order.scheduleDate,
+            orderTime: order.orderTime ?? ""
+        )
     }
     
     /// Mark an order as complete
@@ -163,7 +180,7 @@ class ModernOrdersViewModel: ObservableObject {
         }
         
         do {
-            let success = try await OrderApi.shared.completeOrder(orderId: order.id)
+            let success = try await SupabaseOrderApi.shared.completeOrder(orderId: order.id)
             
             await MainActor.run {
                 // Clear processing state
@@ -224,8 +241,9 @@ class ModernOrdersViewModel: ObservableObject {
     /// Debug the date format for orders
     /// - Parameter orderId: Optional - The ID of the order to debug. If nil, will debug all orders.
     func debugOrderDateFormat(orderId: String? = nil) {
+        // Debug function - no longer needed with Supabase
         Task {
-            await OrderApi.shared.debugOrderDateFormat(orderId: orderId)
+            DebugLogger.shared.log("Debug order dates - using Supabase, dates are ISO 8601", category: .app)
         }
     }
 } 

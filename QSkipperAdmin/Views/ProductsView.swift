@@ -242,30 +242,11 @@ struct ProductsView: View {
         
         // First ensure we have the product fully loaded
         Task {
-            do {
-                // Get the latest product data
-                if let updatedProduct = try await ProductApi.shared.getProduct(productId: product.id) {
-                    await MainActor.run {
-                        productToView = updatedProduct
-                        showLoadingOverlay = false
-                        showProductDetailSheet = true
-                    }
-                } else {
-                    // Fall back to the cached product if we couldn't get the updated one
-                    await MainActor.run {
-                        productToView = product
-                        showLoadingOverlay = false
-                        showProductDetailSheet = true
-                    }
-                }
-            } catch {
-                // If there's an error, just use the original product
-                await MainActor.run {
-                    DebugLogger.shared.log("Failed to refresh product details: \(error.localizedDescription)", category: .error)
-                    productToView = product
-                    showLoadingOverlay = false
-                    showProductDetailSheet = true
-                }
+            // Just use the cached product since Supabase data is already up-to-date
+            await MainActor.run {
+                productToView = product
+                showLoadingOverlay = false
+                showProductDetailSheet = true
             }
         }
     }
@@ -276,14 +257,14 @@ struct ProductsView: View {
         
         Task {
             do {
-                // Log the start of the product loading process
-                DebugLogger.shared.log("Starting to load products", category: .network)
+                DebugLogger.shared.log("Starting to load products from Supabase", category: .network)
                 
-                // Use the direct product loading method
-                let fetchedProducts = try await ProductApi.shared.getAllProducts()
-                DebugLogger.shared.log("Successfully loaded \(fetchedProducts.count) products", category: .network)
+                let supabaseProducts = try await SupabaseProductApi.shared.getAllProducts()
                 
-                // Update on main thread
+                // Convert SupabaseProduct to Product for view compatibility
+                let fetchedProducts = supabaseProducts.map { self.convertToProduct($0) }
+                DebugLogger.shared.log("Successfully loaded \(fetchedProducts.count) products from Supabase", category: .network)
+                
                 await MainActor.run {
                     self.products = fetchedProducts
                     self.isLoading = false
@@ -306,12 +287,11 @@ struct ProductsView: View {
         }
         
         do {
-            // Use the direct product loading method with proper logging
-            DebugLogger.shared.log("Refreshing products (pull-to-refresh)", category: .network)
-            let fetchedProducts = try await ProductApi.shared.getAllProducts()
+            DebugLogger.shared.log("Refreshing products from Supabase", category: .network)
+            let supabaseProducts = try await SupabaseProductApi.shared.getAllProducts()
+            let fetchedProducts = supabaseProducts.map { self.convertToProduct($0) }
             DebugLogger.shared.log("Refresh completed, loaded \(fetchedProducts.count) products", category: .network)
             
-            // Update on main thread
             await MainActor.run {
                 self.products = fetchedProducts
                 self.isLoading = false
@@ -329,16 +309,13 @@ struct ProductsView: View {
     private func deleteProduct(_ product: Product) {
         Task {
             do {
-                // Show loading state
                 await MainActor.run {
                     isLoading = true
                 }
                 
-                // Delete the product using ProductApi
-                let success = try await ProductApi.shared.deleteProduct(productId: product.id)
+                let success = try await SupabaseProductApi.shared.deleteProduct(productId: product.id)
                 
                 if success {
-                    // Remove product from the list
                     await MainActor.run {
                         if let index = products.firstIndex(where: { $0.id == product.id }) {
                             products.remove(at: index)
@@ -355,6 +332,24 @@ struct ProductsView: View {
                 }
             }
         }
+    }
+    
+    /// Convert SupabaseProduct to Product for view compatibility
+    private func convertToProduct(_ sp: SupabaseProduct) -> Product {
+        var product = Product(
+            name: sp.name,
+            price: Int(sp.price),
+            restaurantId: sp.restaurantId,
+            category: sp.category,
+            description: sp.description,
+            extraTime: sp.extraTime,
+            isAvailable: sp.isAvailable,
+            isActive: sp.isActive
+        )
+        product.id = sp.id ?? ""
+        product.isFeatured = sp.isFeatured
+        product.imageUrl = sp.imageUrl
+        return product
     }
 }
 
@@ -470,13 +465,14 @@ struct ProductCard: View {
     }
     
     private func loadProductImage() {
-        // Use the correct endpoint for product photos with a timestamp to prevent caching
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let imageUrl = "\(NetworkManager.baseURL)/get_product_photo/\(product.id)?v=\(timestamp)"
-        
-        // Delay loading to prevent too many concurrent requests
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: 0.1...0.5)) {
-            self.loadImage(from: imageUrl)
+        // Load from Supabase Storage URL if available
+        if let imageUrl = product.imageUrl, !imageUrl.isEmpty {
+            loadImage(from: imageUrl)
+        } else {
+            // Fallback: try old endpoint
+            let timestamp = Int(Date().timeIntervalSince1970)
+            let imageUrl = "\(NetworkManager.baseURL)/get_product_photo/\(product.id)?v=\(timestamp)"
+            loadImage(from: imageUrl)
         }
     }
     
@@ -492,11 +488,16 @@ struct ProductCard: View {
             do {
                 if let url = URL(string: urlString) {
                     DebugLogger.shared.log("Loading image from \(urlString)", category: .network)
-                    let image = try await ProductApi.shared.fetchImage(from: url)
-                    
-                    await MainActor.run {
-                        self.productImage = image
-                        self.isLoadingImage = false
+                    // Use SupabaseProductApi for image fetching with cache
+                    if let image = await SupabaseProductApi.shared.fetchImage(from: urlString) {
+                        await MainActor.run {
+                            self.productImage = image
+                            self.isLoadingImage = false
+                        }
+                    } else {
+                        await MainActor.run {
+                            self.isLoadingImage = false
+                        }
                     }
                 } else {
                     throw ProductApi.ProductApiError.invalidURL
@@ -674,27 +675,36 @@ struct AddProductView: View {
         // Submit product to API using multipart (better for handling images)
         Task {
             do {
-                // Try multipart method first (better for handling images)
-                let _ = try await ProductApi.shared.createProductWithMultipart(product: product, image: productImage)
+                // Get restaurant ID from Supabase or UserDefaults
+                let restaurantId = SupabaseAuthService.shared.getRestaurantId() 
+                    ?? UserDefaults.standard.string(forKey: "restaurant_id") 
+                    ?? ""
+                
+                // Create SupabaseProduct and use SupabaseProductApi
+                let supabaseProduct = SupabaseProduct(
+                    restaurantId: restaurantId,
+                    name: productName,
+                    price: Double(productPrice) ?? 0,
+                    category: productCategory,
+                    description: productDescription,
+                    extraTime: Int(preparationTime) ?? 0,
+                    isAvailable: true,
+                    isActive: true,
+                    isFeatured: false,
+                    quantity: 0,
+                    topPicks: false
+                )
+                
+                let _ = try await SupabaseProductApi.shared.createProduct(product: supabaseProduct, image: productImage)
                 
                 await MainActor.run {
                     isSubmitting = false
                     showAlert(message: "Product added successfully")
                 }
             } catch {
-                // If multipart fails, try with standard method as fallback
-                do {
-                    let _ = try await ProductApi.shared.createProduct(product: product, image: productImage)
-                    
-                    await MainActor.run {
-                        isSubmitting = false
-                        showAlert(message: "Product added successfully")
-                    }
-                } catch {
-                    await MainActor.run {
-                        isSubmitting = false
-                        showAlert(message: "Error: \(error.localizedDescription)")
-                    }
+                await MainActor.run {
+                    isSubmitting = false
+                    showAlert(message: "Error: \(error.localizedDescription)")
                 }
             }
         }

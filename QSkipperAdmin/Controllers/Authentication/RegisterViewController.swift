@@ -492,21 +492,20 @@ class RegisterViewModel: ObservableObject {
         DebugLogger.shared.log("Starting registration API call", category: .network)
         
         Task {
-            do {
-                try await AuthService.shared.register(email: email, password: password, name: "Restaurant Owner")
+            let success = await SupabaseAuthService.shared.signUp(email: email, password: password)
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.isLoading = false
                 
-                DispatchQueue.main.async { [weak self] in
-                    self?.isLoading = false
+                if success {
+                    // Also update old AuthService for compatibility
+                    AuthService.shared.isAuthenticated = true
                     self?.navigateToHome = true
-                    DebugLogger.shared.log("Registration successful", category: .network, tag: "SUCCESS")
-                }
-            } catch {
-                DebugLogger.shared.log("Registration error: \(error.localizedDescription)", category: .network, tag: "ERROR")
-                
-                DispatchQueue.main.async { [weak self] in
-                    self?.isLoading = false
-                    self?.errorMessage = error.localizedDescription
+                    DebugLogger.shared.log("Supabase registration successful", category: .network, tag: "SUCCESS")
+                } else {
+                    self?.errorMessage = SupabaseAuthService.shared.errorMessage.isEmpty ? "Registration failed" : SupabaseAuthService.shared.errorMessage
                     self?.showErrorAlert = true
+                    DebugLogger.shared.log("Supabase registration failed", category: .network, tag: "ERROR")
                 }
             }
         }

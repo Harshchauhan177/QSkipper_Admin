@@ -289,14 +289,12 @@ struct ProductDetailView: View {
         
         Task {
             do {
-                // Delete the product using the service
-                let success = try await productService.deleteProduct(productId: product.id)
+                let success = try await SupabaseProductApi.shared.deleteProduct(productId: product.id)
                 
                 await MainActor.run {
                     isDeleting = false
                     
                     if success {
-                        // Go back to product list
                         presentationMode.wrappedValue.dismiss()
                     }
                 }
@@ -319,27 +317,35 @@ struct ProductDetailView: View {
             return
         }
         
-        // Use the correct endpoint for product photos with timestamp to prevent caching
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let imageUrlString = "\(NetworkManager.baseURL)/get_product_photo/\(product.id)?v=\(timestamp)"
-        
-        guard let url = URL(string: imageUrlString) else {
-            isLoadingImage = false
-            return
-        }
-        
-        Task {
-            do {
-                let image = try await ProductApi.shared.fetchImage(from: url)
-                
-                await MainActor.run {
-                    self.productImage = image
-                    self.isLoadingImage = false
+        // Try Supabase Storage URL first
+        if let imageUrl = product.imageUrl, !imageUrl.isEmpty {
+            Task {
+                if let image = await SupabaseProductApi.shared.fetchImage(from: imageUrl) {
+                    await MainActor.run {
+                        self.productImage = image
+                        self.isLoadingImage = false
+                    }
+                } else {
+                    await MainActor.run {
+                        self.isLoadingImage = false
+                    }
                 }
-            } catch {
-                print("Error loading product image: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.isLoadingImage = false
+            }
+        } else {
+            // Fallback to old endpoint
+            let timestamp = Int(Date().timeIntervalSince1970)
+            let imageUrlString = "\(NetworkManager.baseURL)/get_product_photo/\(product.id)?v=\(timestamp)"
+            
+            Task {
+                if let image = await SupabaseProductApi.shared.fetchImage(from: imageUrlString) {
+                    await MainActor.run {
+                        self.productImage = image
+                        self.isLoadingImage = false
+                    }
+                } else {
+                    await MainActor.run {
+                        self.isLoadingImage = false
+                    }
                 }
             }
         }

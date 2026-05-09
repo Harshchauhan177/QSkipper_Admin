@@ -4,7 +4,6 @@ import PhotosUI
 struct RestaurantSetupView: View {
     // Environment
     @EnvironmentObject private var authService: AuthService
-    @StateObject private var restaurantService = RestaurantService()
     @Binding var isPresented: Bool
     
     // State
@@ -13,6 +12,8 @@ struct RestaurantSetupView: View {
     @State private var estimatedTime = 30
     @State private var selectedImage: UIImage?
     @State private var showImagePicker = false
+    @State private var isLoading = false
+    @State private var errorMessage: String?
     
     var body: some View {
         NavigationView {
@@ -57,10 +58,10 @@ struct RestaurantSetupView: View {
                             .foregroundColor(.white)
                     }
                     .listRowBackground(Color(AppColors.primaryGreen))
-                    .disabled(restaurantName.isEmpty || restaurantService.isLoading)
+                    .disabled(restaurantName.isEmpty || isLoading)
                 }
                 
-                if let error = restaurantService.error {
+                if let error = errorMessage {
                     Section {
                         Text(error)
                             .foregroundColor(Color(AppColors.errorRed))
@@ -68,7 +69,7 @@ struct RestaurantSetupView: View {
                     }
                 }
                 
-                if restaurantService.isLoading {
+                if isLoading {
                     Section {
                         HStack {
                             Spacer()
@@ -87,46 +88,56 @@ struct RestaurantSetupView: View {
     
     private func saveRestaurant() {
         guard !restaurantName.isEmpty else {
-            restaurantService.error = "Please enter a restaurant name"
+            errorMessage = "Please enter a restaurant name"
             return
         }
         
         guard let userId = authService.getUserId() else {
-            restaurantService.error = "User ID not found"
+            errorMessage = "User ID not found"
             return
         }
         
-        // Create restaurant model
-        var restaurant = Restaurant(
-            restaurantId: userId,
-            restaurantName: restaurantName,
-            cuisine: cuisine,
-            estimatedTime: estimatedTime,
-            bannerPhoto: selectedImage
-        )
+        isLoading = true
+        errorMessage = nil
         
-        // Save restaurant
-        restaurantService.createRestaurant(restaurant: restaurant) { result in
-            switch result {
-            case .success(let createdRestaurant):
-                // Update auth service with restaurant info
-                if let currentUser = authService.currentUser {
-                    let updatedUser = UserRestaurantProfile(
-                        id: currentUser.id,
-                        restaurantId: createdRestaurant.id,
-                        restaurantName: createdRestaurant.restaurantName,
-                        estimatedTime: createdRestaurant.estimatedTime,
-                        cuisine: createdRestaurant.cuisine,
-                        restaurantImage: createdRestaurant.bannerPhoto
-                    )
-                    authService.currentUser = updatedUser
+        Task {
+            do {
+                let result = try await SupabaseRestaurantService.shared.registerRestaurant(
+                    name: restaurantName,
+                    cuisine: cuisine,
+                    estimatedTime: estimatedTime,
+                    bannerImage: selectedImage
+                )
+                
+                await MainActor.run {
+                    isLoading = false
+                    
+                    // Update UserDefaults
+                    let restaurantId = result.id ?? userId
+                    UserDefaults.standard.set(restaurantId, forKey: "restaurant_id")
+                    UserDefaults.standard.set(true, forKey: "is_restaurant_registered")
+                    
+                    // Update auth service with restaurant info
+                    if let currentUser = authService.currentUser {
+                        let updatedUser = UserRestaurantProfile(
+                            id: currentUser.id,
+                            restaurantId: restaurantId,
+                            restaurantName: restaurantName,
+                            estimatedTime: estimatedTime,
+                            cuisine: cuisine,
+                            restaurantImage: selectedImage
+                        )
+                        authService.currentUser = updatedUser
+                    }
+                    
+                    // Close modal
+                    isPresented = false
                 }
-                
-                // Close modal
-                isPresented = false
-                
-            case .failure(let error):
-                restaurantService.error = error.localizedDescription
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

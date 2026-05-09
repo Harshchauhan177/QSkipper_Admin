@@ -122,29 +122,24 @@ struct RestaurantManagementView: View {
             // Then load restaurant data (which will only load if registered)
             loadRestaurantData()
             
-            // Only attempt to load restaurant image if registered
+            // Load restaurant image from Supabase if registered
             if isRegistered {
-                // Force attempt to load restaurant image - try both user ID and restaurant ID
-                if let userId = authService.getUserId() {
-                    RestaurantService.shared.fetchRestaurantImage(restaurantId: userId) { image in
-                        if let image = image {
-                            DispatchQueue.main.async {
-                                self.restaurantImage = image
-                                DebugLogger.shared.log("Successfully loaded restaurant image from user ID", category: .network, tag: "RESTAURANT_MANAGEMENT")
+                Task {
+                    if let restaurant = try? await SupabaseRestaurantService.shared.fetchMyRestaurant() {
+                        if let bannerUrl = restaurant.bannerImageUrl {
+                            let image = await SupabaseRestaurantService.shared.fetchRestaurantImage(url: bannerUrl)
+                            await MainActor.run {
+                                if let image = image {
+                                    self.restaurantImage = image
+                                    DebugLogger.shared.log("Successfully loaded restaurant image from Supabase", category: .network, tag: "RESTAURANT_MANAGEMENT")
+                                }
                             }
                         }
-                    }
-                }
-                
-                // Also try with restaurant ID if different
-                if let restaurantId = UserDefaults.standard.string(forKey: "restaurant_id"), 
-                   restaurantId != authService.getUserId() {
-                    RestaurantService.shared.fetchRestaurantImage(restaurantId: restaurantId) { image in
-                        if let image = image {
-                            DispatchQueue.main.async {
-                                self.restaurantImage = image
-                                DebugLogger.shared.log("Successfully loaded restaurant image from restaurant ID", category: .network, tag: "RESTAURANT_MANAGEMENT")
-                            }
+                        // Also update local fields from Supabase data
+                        await MainActor.run {
+                            if restaurantName.isEmpty { restaurantName = restaurant.name }
+                            if selectedCuisine.isEmpty { selectedCuisine = restaurant.cuisine }
+                            if estimatedTime.isEmpty { estimatedTime = String(restaurant.estimatedTime) }
                         }
                     }
                 }
@@ -355,13 +350,17 @@ struct RestaurantManagementView: View {
             restaurantName = dataController.restaurant.name
         }
         
-        // Try to load restaurant image if we have a restaurantId
-        if let restaurantId = authService.getUserId(), restaurantImage == nil {
-            RestaurantService.shared.fetchRestaurantImage(restaurantId: restaurantId) { image in
-                if let image = image {
-                    DispatchQueue.main.async {
-                        self.restaurantImage = image
-                        DebugLogger.shared.log("Successfully loaded restaurant image", category: .network, tag: "RESTAURANT_MANAGEMENT")
+        // Try to load restaurant image from Supabase
+        if restaurantImage == nil {
+            Task {
+                if let restaurant = try? await SupabaseRestaurantService.shared.fetchMyRestaurant(),
+                   let bannerUrl = restaurant.bannerImageUrl {
+                    let image = await SupabaseRestaurantService.shared.fetchRestaurantImage(url: bannerUrl)
+                    await MainActor.run {
+                        if let image = image {
+                            self.restaurantImage = image
+                            DebugLogger.shared.log("Successfully loaded restaurant image from Supabase", category: .network, tag: "RESTAURANT_MANAGEMENT")
+                        }
                     }
                 }
             }
@@ -501,47 +500,31 @@ struct RestaurantManagementView: View {
     }
     
     private func registerNewRestaurant(userId: String) {
-        // Try the multipart approach first (better for large images)
-        restaurantService.registerRestaurantWithMultipart(
-            userId: userId,
-            restaurantName: restaurantName,
-            cuisine: selectedCuisine,
-            estimatedTime: Int(estimatedTime) ?? 30,
-            bannerImage: restaurantImage
-        ) { result in
-            self.isSubmitting = false
-            
-            switch result {
-            case .success(let restaurantId):
-                self.handleSuccessfulRegistration(userId: userId, restaurantId: restaurantId)
-            case .failure(let error):
-                // If the multipart endpoint is not available, fall back to the regular method
-                print("Multipart registration failed: \(error.localizedDescription). Trying standard method...")
+        Task {
+            do {
+                let result = try await SupabaseRestaurantService.shared.registerRestaurant(
+                    name: restaurantName,
+                    cuisine: selectedCuisine,
+                    estimatedTime: Int(estimatedTime) ?? 30,
+                    bannerImage: restaurantImage
+                )
                 
-                // Fall back to regular registration
-                self.registerWithStandardMethod(userId: userId)
+                await MainActor.run {
+                    self.isSubmitting = false
+                    self.handleSuccessfulRegistration(userId: userId, restaurantId: result.id ?? userId)
+                }
+            } catch {
+                await MainActor.run {
+                    self.isSubmitting = false
+                    self.showAlert(message: "Registration failed: \(error.localizedDescription)")
+                }
             }
         }
     }
     
     private func registerWithStandardMethod(userId: String) {
-        // Use RestaurantService to register the restaurant with the old method
-        restaurantService.registerRestaurant(
-            userId: userId,
-            restaurantName: restaurantName,
-            cuisine: selectedCuisine,
-            estimatedTime: Int(estimatedTime) ?? 30,
-            bannerImage: restaurantImage
-        ) { result in
-            self.isSubmitting = false
-            
-            switch result {
-            case .success(let restaurantId):
-                self.handleSuccessfulRegistration(userId: userId, restaurantId: restaurantId)
-            case .failure(let error):
-                self.showAlert(message: error.localizedDescription)
-            }
-        }
+        // Same as registerNewRestaurant, this is a fallback
+        registerNewRestaurant(userId: userId)
     }
     
     private func handleSuccessfulRegistration(userId: String, restaurantId: String) {
@@ -584,54 +567,46 @@ struct RestaurantManagementView: View {
     }
     
     private func updateRestaurantProfile() {
-        // Get the user ID and restaurant ID
-        guard let userId = authService.getUserId(),
-              let restaurantId = UserDefaults.standard.string(forKey: "restaurant_id") else {
-            showAlert(message: "User ID or Restaurant ID not found")
+        guard let restaurantId = UserDefaults.standard.string(forKey: "restaurant_id") else {
+            showAlert(message: "Restaurant ID not found")
             isSubmitting = false
             return
         }
         
-        // Update existing restaurant using multipart
-        restaurantService.updateRestaurantWithMultipart(
-            userId: userId,
-            restaurantId: restaurantId,
-            restaurantName: restaurantName,
-            cuisine: selectedCuisine,
-            estimatedTime: Int(estimatedTime) ?? 30,
-            bannerImage: restaurantImage
-        ) { result in
-            switch result {
-            case .success(let updatedRestaurantId):
-                self.isSubmitting = false
+        Task {
+            do {
+                let result = try await SupabaseRestaurantService.shared.updateRestaurant(
+                    restaurantId: restaurantId,
+                    name: restaurantName,
+                    cuisine: selectedCuisine,
+                    estimatedTime: Int(estimatedTime) ?? 30,
+                    bannerImage: restaurantImage
+                )
                 
-                // Update restaurant data in UserDefaults
-                let restaurantData: [String: Any] = [
-                    "id": updatedRestaurantId,
-                    "name": self.restaurantName,
-                    "estimatedTime": Int(self.estimatedTime) ?? 30,
-                    "cuisine": self.selectedCuisine,
-                    "isRegistered": true
-                ]
-                
-                if let encodedData = try? JSONSerialization.data(withJSONObject: restaurantData) {
-                    UserDefaults.standard.set(encodedData, forKey: "restaurant_data")
-                }
-                
-                // Update the data controller
-                self.dataController.restaurant.id = updatedRestaurantId
-                self.dataController.restaurant.name = self.restaurantName
-                
-                self.showAlert(message: "Restaurant updated successfully")
-                
-            case .failure(let error):
-                // Check if the error is related to the image size
-                if error.localizedDescription.contains("too large") || error.localizedDescription.contains("too long") {
-                    // Try updating without the image
-                    DebugLogger.shared.log("First update attempt failed due to image size. Trying without image...", category: .network)
+                await MainActor.run {
+                    self.isSubmitting = false
                     
-                    self.tryUpdateWithoutImage(userId: userId, restaurantId: restaurantId)
-                } else {
+                    // Update UserDefaults
+                    let restaurantData: [String: Any] = [
+                        "id": result.id ?? restaurantId,
+                        "name": self.restaurantName,
+                        "estimatedTime": Int(self.estimatedTime) ?? 30,
+                        "cuisine": self.selectedCuisine,
+                        "isRegistered": true
+                    ]
+                    
+                    if let encodedData = try? JSONSerialization.data(withJSONObject: restaurantData) {
+                        UserDefaults.standard.set(encodedData, forKey: "restaurant_data")
+                    }
+                    
+                    // Update the data controller
+                    self.dataController.restaurant.id = result.id ?? restaurantId
+                    self.dataController.restaurant.name = self.restaurantName
+                    
+                    self.showAlert(message: "Restaurant updated successfully")
+                }
+            } catch {
+                await MainActor.run {
                     self.isSubmitting = false
                     self.showAlert(message: "Failed to update restaurant: \(error.localizedDescription)")
                 }
@@ -639,108 +614,59 @@ struct RestaurantManagementView: View {
         }
     }
     
-    // Fallback method to update restaurant without image
+    // Fallback method - not needed with Supabase but kept for compatibility
     private func tryUpdateWithoutImage(userId: String, restaurantId: String) {
-        // Create a restaurant with just the text fields
-        let restaurant = Restaurant(
-            id: restaurantId,
-            restaurantId: userId,
-            restaurantName: restaurantName,
-            cuisine: selectedCuisine,
-            estimatedTime: Int(estimatedTime) ?? 30,
-            bannerPhoto: nil // Don't include the image
-        )
-        
-        // Use the updateRestaurant method instead of multipart
-        restaurantService.updateRestaurant(restaurant: restaurant) { result in
-            self.isSubmitting = false
-            
-            switch result {
-            case .success(let updatedRestaurant):
-                // Update restaurant data in UserDefaults
-                let restaurantData: [String: Any] = [
-                    "id": updatedRestaurant.id,
-                    "name": self.restaurantName,
-                    "estimatedTime": Int(self.estimatedTime) ?? 30,
-                    "cuisine": self.selectedCuisine,
-                    "isRegistered": true
-                ]
-                
-                if let encodedData = try? JSONSerialization.data(withJSONObject: restaurantData) {
-                    UserDefaults.standard.set(encodedData, forKey: "restaurant_data")
-                }
-                
-                // Update the data controller
-                self.dataController.restaurant.id = updatedRestaurant.id
-                self.dataController.restaurant.name = self.restaurantName
-                
-                self.showAlert(message: "Restaurant details updated successfully (without image)")
-                
-                // If we have an image that needs updating, suggest separate image upload
-                if self.restaurantImage != nil {
-                    DebugLogger.shared.log("Text data updated successfully. Image was not included due to size limits.", category: .network)
-                }
-                
-            case .failure(let error):
-                self.showAlert(message: "Failed to update restaurant: \(error.localizedDescription)")
-            }
-        }
+        updateRestaurantProfile()
     }
     
     private func deleteRestaurant() {
         isSubmitting = true
         
-        // Get the restaurant ID
         guard let restaurantId = UserDefaults.standard.string(forKey: "restaurant_id") else {
             showAlert(message: "Restaurant ID not found")
             isSubmitting = false
             return
         }
         
-        // Log the deletion attempt
         DebugLogger.shared.log("Attempting to delete restaurant with ID: \(restaurantId)", category: .network, tag: "DELETE_RESTAURANT")
         
-        // Delete the restaurant
-        restaurantService.deleteRestaurant(restaurantId: restaurantId) { result in
-            DispatchQueue.main.async {
-                self.isSubmitting = false
+        Task {
+            do {
+                try await SupabaseRestaurantService.shared.deleteRestaurant(restaurantId: restaurantId)
                 
-                switch result {
-                case .success(_):
-                    // Reset restaurant state but keep the user account
+                await MainActor.run {
+                    self.isSubmitting = false
+                    
+                    // Reset restaurant state
                     self.restaurantName = ""
                     self.estimatedTime = ""
                     self.selectedCuisine = ""
                     self.restaurantImage = nil
                     self.isRegistered = false
                     
-                    // Clear UserDefaults restaurant data
+                    // Clear UserDefaults
                     UserDefaults.standard.removeObject(forKey: "restaurant_data")
                     UserDefaults.standard.set(false, forKey: "is_restaurant_registered")
                     UserDefaults.standard.removeObject(forKey: "restaurant_id")
                     
-                    // Reset restaurant data in DataController
+                    // Reset data controller
                     self.dataController.restaurant.id = ""
                     self.dataController.restaurant.name = ""
                     
-                    // Update the user's restaurant info in AuthService but maintain user ID
+                    // Update AuthService
                     if var currentUser = self.authService.currentUser {
-                        // Preserve the user ID
-                        let userId = currentUser.id
-                        
-                        // Reset restaurant-specific fields
                         currentUser.restaurantId = ""
                         currentUser.restaurantName = ""
                         currentUser.estimatedTime = 0
                         currentUser.cuisine = ""
-                        
-                        // Update the user
                         self.authService.currentUser = currentUser
                     }
                     
                     self.showAlert(message: "Restaurant deleted successfully")
-                    
-                case .failure(let error):
+                }
+            } catch {
+                await MainActor.run {
+                    self.isSubmitting = false
                     DebugLogger.shared.logError(error, tag: "DELETE_RESTAURANT_ERROR")
                     self.showAlert(message: "Failed to delete restaurant: \(error.localizedDescription)")
                 }

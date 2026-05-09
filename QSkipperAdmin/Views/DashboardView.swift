@@ -3,7 +3,7 @@ import SwiftUI
 struct DashboardView: View {
     // Environment
     @EnvironmentObject private var authService: AuthService
-    @StateObject private var orderService = OrderService()
+    // Orders are now handled by ModernOrdersView which uses SupabaseOrderApi
     // Use ProductApi directly instead of ProductService
     @State private var products: [Product] = []
     @State private var isLoadingProducts = false
@@ -60,30 +60,35 @@ struct DashboardView: View {
     }
     
     private func loadData(restaurantId: String) {
-        // Try to get the restaurant ID from UserDefaults first
-        var targetRestaurantId = restaurantId
-        
-        if let storedRestaurantId = UserDefaults.standard.string(forKey: "restaurant_id"), !storedRestaurantId.isEmpty {
-            targetRestaurantId = storedRestaurantId
-            DebugLogger.shared.log("Using restaurant ID from UserDefaults: \(targetRestaurantId)", category: .app)
-        }
-        
-        // Load orders
-        orderService.fetchRestaurantOrders(restaurantId: targetRestaurantId)
-        
-        // Load products directly using ProductApi
+        // Load products using SupabaseProductApi
         isLoadingProducts = true
         Task {
             do {
-                let fetchedProducts = try await ProductApi.shared.getAllProducts(restaurantId: targetRestaurantId)
-                DispatchQueue.main.async {
+                let supabaseProducts = try await SupabaseProductApi.shared.getAllProducts()
+                let fetchedProducts = supabaseProducts.map { sp -> Product in
+                    var product = Product(
+                        name: sp.name,
+                        price: Int(sp.price),
+                        restaurantId: sp.restaurantId,
+                        category: sp.category,
+                        description: sp.description,
+                        extraTime: sp.extraTime,
+                        isAvailable: sp.isAvailable,
+                        isActive: sp.isActive
+                    )
+                    product.id = sp.id ?? ""
+                    product.isFeatured = sp.isFeatured
+                    product.imageUrl = sp.imageUrl
+                    return product
+                }
+                await MainActor.run {
                     self.products = fetchedProducts
                     self.isLoadingProducts = false
                 }
             } catch {
                 print("Error loading products: \(error.localizedDescription)")
                 DebugLogger.shared.log("Error loading products: \(error.localizedDescription)", category: .error)
-                DispatchQueue.main.async {
+                await MainActor.run {
                     self.isLoadingProducts = false
                 }
             }
@@ -284,6 +289,9 @@ struct SettingsView: View {
                 
                 Section(header: Text("App")) {
                     Button(action: {
+                        Task {
+                            await SupabaseAuthService.shared.signOut()
+                        }
                         authService.logout()
                     }) {
                         HStack {

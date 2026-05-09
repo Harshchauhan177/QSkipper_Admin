@@ -4,7 +4,6 @@ import PhotosUI
 struct ProfileEditView: View {
     // Environment
     @EnvironmentObject private var authService: AuthService
-    @StateObject private var restaurantService = RestaurantService()
     @Environment(\.presentationMode) private var presentationMode
     
     // State
@@ -15,6 +14,8 @@ struct ProfileEditView: View {
     @State private var showImagePicker = false
     @State private var showSuccessAlert = false
     @State private var userImage: UIImage?
+    @State private var isLoading = false
+    @State private var errorMessage: String?
     
     var body: some View {
         Form {
@@ -76,10 +77,10 @@ struct ProfileEditView: View {
                         .foregroundColor(.white)
                 }
                 .listRowBackground(Color(AppColors.primaryGreen))
-                .disabled(restaurantName.isEmpty || restaurantService.isLoading)
+                .disabled(restaurantName.isEmpty || isLoading)
             }
             
-            if let error = restaurantService.error {
+            if let error = errorMessage {
                 Section {
                     Text(error)
                         .foregroundColor(Color(AppColors.errorRed))
@@ -87,7 +88,7 @@ struct ProfileEditView: View {
                 }
             }
             
-            if restaurantService.isLoading {
+            if isLoading {
                 Section {
                     HStack {
                         Spacer()
@@ -123,9 +124,26 @@ struct ProfileEditView: View {
         estimatedTime = currentUser.estimatedTime
         selectedImage = currentUser.restaurantImage
         
-        // Load the full restaurant to get any data not in the user profile
+        // Load restaurant data from Supabase
         if !currentUser.restaurantId.isEmpty {
-            restaurantService.fetchRestaurantByUserId(userId: currentUser.id)
+            Task {
+                if let restaurant = try? await SupabaseRestaurantService.shared.fetchMyRestaurant() {
+                    await MainActor.run {
+                        restaurantName = restaurant.name
+                        cuisine = restaurant.cuisine
+                        estimatedTime = restaurant.estimatedTime
+                    }
+                    // Load banner image
+                    if let bannerUrl = restaurant.bannerImageUrl {
+                        let image = await SupabaseRestaurantService.shared.fetchRestaurantImage(url: bannerUrl)
+                        await MainActor.run {
+                            if let image = image {
+                                selectedImage = image
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     
@@ -133,64 +151,43 @@ struct ProfileEditView: View {
         guard let currentUser = authService.currentUser,
               !currentUser.restaurantId.isEmpty else { return }
         
-        // Create restaurant model for update
-        let restaurant = Restaurant(
-            id: currentUser.restaurantId,
-            restaurantId: currentUser.id,
-            restaurantName: restaurantName,
-            cuisine: cuisine,
-            estimatedTime: estimatedTime,
-            bannerPhoto: selectedImage
-        )
+        isLoading = true
+        errorMessage = nil
         
-        // Log the update attempt
-        DebugLogger.shared.log("Updating restaurant profile: \(restaurant.id)", category: .network)
-        
-        // Update restaurant
-        restaurantService.updateRestaurant(restaurant: restaurant) { result in
-            switch result {
-            case .success(let updatedRestaurant):
-                DebugLogger.shared.log("Restaurant profile update successful", category: .network)
-                
-                // Update auth service with restaurant info
-                let updatedUser = UserRestaurantProfile(
-                    id: currentUser.id,
-                    restaurantId: updatedRestaurant.id,
-                    restaurantName: updatedRestaurant.restaurantName,
-                    estimatedTime: updatedRestaurant.estimatedTime,
-                    cuisine: updatedRestaurant.cuisine,
-                    restaurantImage: updatedRestaurant.bannerPhoto
+        Task {
+            do {
+                let result = try await SupabaseRestaurantService.shared.updateRestaurant(
+                    restaurantId: currentUser.restaurantId,
+                    name: restaurantName,
+                    cuisine: cuisine,
+                    estimatedTime: estimatedTime,
+                    bannerImage: selectedImage
                 )
-                authService.currentUser = updatedUser
                 
-                // Show success alert
-                showSuccessAlert = true
-                
-            case .failure(let error):
-                DebugLogger.shared.logError(error, tag: "RESTAURANT_UPDATE")
-                restaurantService.error = "Update failed: \(error.localizedDescription)"
-                
-                // If there's a selected image and the update failed, try uploading the image separately
-                if let image = selectedImage {
-                    DebugLogger.shared.log("Attempting to upload restaurant image separately", category: .network)
-                    uploadRestaurantImage(restaurantId: currentUser.restaurantId, image: image)
+                await MainActor.run {
+                    isLoading = false
+                    DebugLogger.shared.log("Restaurant profile update successful via Supabase", category: .network)
+                    
+                    // Update auth service with restaurant info
+                    let updatedUser = UserRestaurantProfile(
+                        id: currentUser.id,
+                        restaurantId: result.id ?? currentUser.restaurantId,
+                        restaurantName: restaurantName,
+                        estimatedTime: estimatedTime,
+                        cuisine: cuisine,
+                        restaurantImage: selectedImage
+                    )
+                    authService.currentUser = updatedUser
+                    
+                    // Show success alert
+                    showSuccessAlert = true
                 }
-            }
-        }
-    }
-    
-    private func uploadRestaurantImage(restaurantId: String, image: UIImage) {
-        restaurantService.uploadRestaurantImage(restaurantId: restaurantId, image: image) { result in
-            switch result {
-            case .success(let message):
-                DebugLogger.shared.log("Restaurant image upload successful: \(message)", category: .network)
-                
-                // Show success alert even if only the image upload succeeded
-                showSuccessAlert = true
-                
-            case .failure(let error):
-                DebugLogger.shared.logError(error, tag: "RESTAURANT_IMAGE_UPLOAD")
-                restaurantService.error = "Image upload failed: \(error.localizedDescription)"
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    DebugLogger.shared.logError(error, tag: "RESTAURANT_UPDATE")
+                    errorMessage = "Update failed: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -203,4 +200,4 @@ struct ProfileEditView_Previews: PreviewProvider {
                 .environmentObject(AuthService())
         }
     }
-} 
+}

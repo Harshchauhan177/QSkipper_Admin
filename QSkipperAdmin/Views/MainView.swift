@@ -32,6 +32,9 @@ struct MainView: View {
         .alert("Confirm Logout", isPresented: $showLogoutAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Logout", role: .destructive) {
+                Task {
+                    await SupabaseAuthService.shared.signOut()
+                }
                 authService.logout()
             }
         } message: {
