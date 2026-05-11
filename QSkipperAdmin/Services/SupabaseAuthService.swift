@@ -37,6 +37,12 @@ class SupabaseAuthService: ObservableObject {
             let session = try await client.auth.session
             self.currentUserId = session.user.id.uuidString
             self.isAuthenticated = true
+            
+            // Ensure UserDefaults are synced for legacy code compatibility
+            UserDefaults.standard.set(session.user.id.uuidString, forKey: "user_id")
+            UserDefaults.standard.set(session.user.id.uuidString, forKey: "qskipper_user_id")
+            UserDefaults.standard.set(true, forKey: "isLoggedIn")
+            
             DebugLogger.shared.log("Active session found for user: \(session.user.id)", category: .auth)
             
             // Load restaurant data
@@ -67,6 +73,7 @@ class SupabaseAuthService: ObservableObject {
             
             // Save to UserDefaults for compatibility with existing code
             UserDefaults.standard.set(response.user.id.uuidString, forKey: "user_id")
+            UserDefaults.standard.set(response.user.id.uuidString, forKey: "qskipper_user_id")
             UserDefaults.standard.set(true, forKey: "isLoggedIn")
             
             DebugLogger.shared.log("Sign up successful for: \(email)", category: .auth)
@@ -100,6 +107,7 @@ class SupabaseAuthService: ObservableObject {
             
             // Save to UserDefaults for compatibility
             UserDefaults.standard.set(session.user.id.uuidString, forKey: "user_id")
+            UserDefaults.standard.set(session.user.id.uuidString, forKey: "qskipper_user_id")
             UserDefaults.standard.set(true, forKey: "isLoggedIn")
             
             DebugLogger.shared.log("Sign in successful for: \(email)", category: .auth)
@@ -132,6 +140,7 @@ class SupabaseAuthService: ObservableObject {
             
             // Clear UserDefaults
             UserDefaults.standard.removeObject(forKey: "user_id")
+            UserDefaults.standard.removeObject(forKey: "qskipper_user_id")
             UserDefaults.standard.removeObject(forKey: "restaurant_id")
             UserDefaults.standard.set(false, forKey: "isLoggedIn")
             UserDefaults.standard.set(false, forKey: "is_restaurant_registered")

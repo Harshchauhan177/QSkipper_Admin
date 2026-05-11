@@ -421,8 +421,8 @@ struct RestaurantManagementView: View {
         
         isSubmitting = true
         
-        // Get the user ID
-        guard let userId = authService.getUserId() else {
+        // Get the user ID - try old AuthService first, then Supabase
+        guard let userId = authService.getUserId() ?? SupabaseAuthService.shared.getUserId() else {
             showAlert(message: "User ID not found")
             isSubmitting = false
             return
