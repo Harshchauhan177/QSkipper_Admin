@@ -9,6 +9,11 @@ import SwiftUI
 
 struct AboutView: View {
     
+    let currentDevelopers = [
+        ("Anshu Nagar", "Developer", "chevron.left.forwardslash.chevron.right", Color.indigo),
+        ("Harsh Kumar", "Developer", "terminal.fill", Color.teal)
+    ]
+    
     let teamMembers = [
         ("Baniya Bros", "Full Stack Devs Org", "person.3.sequence.fill", Color.blue),
         ("Keshav Lohiya", "Full Stack Developer", "brain.fill", Color.green),
@@ -66,6 +71,29 @@ struct AboutView: View {
                         FeatureItem(icon: "building.2.fill", title: "Restaurant Management", description: "Update profile, hours, and contact information")
                         FeatureItem(icon: "cube.fill", title: "Product Management", description: "Add, edit, and remove menu items with prices and categories")
                         FeatureItem(icon: "bag.fill", title: "Order Management", description: "Process customer orders in real-time with status updates")
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+                    
+                    // Current Developers section
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Current Developers")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .padding(.bottom, 8)
+                        
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                            ForEach(currentDevelopers, id: \.0) { member in
+                                TeamMemberView(
+                                    name: member.0,
+                                    role: member.1,
+                                    color: member.3,
+                                    icon: member.2
+                                )
+                            }
+                        }
                     }
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -169,22 +169,7 @@ struct LoginUIView: View {
                 }
             )
             
-            // Register link
-            HStack {
-                Text("Don't have an account?")
-                    .font(AppFonts.caption)
-                    .foregroundColor(AppColors.mediumGray)
-                
-                Button(action: {
-                    viewModel.navigateToRegister = true
-                }) {
-                    Text("Sign Up")
-                        .font(AppFonts.caption)
-                        .foregroundColor(AppColors.primaryGreen)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, 10)
+
             
             Spacer()
         }

@@ -45,19 +45,25 @@ struct Order: Codable, Identifiable {
     enum Status: String, CaseIterable {
         case pending = "pending"
         case accepted = "accepted"
+        case processing = "processing"
         case preparing = "preparing"
         case ready = "ready"
         case completed = "completed"
         case cancelled = "cancelled"
+        case rejected = "rejected"
+        case fraud = "fraud"
         
         var displayName: String {
             switch self {
-            case .pending: return "Pending"
+            case .pending: return "Not Accepted"
             case .accepted: return "Accepted"
+            case .processing: return "Processing"
             case .preparing: return "Preparing"
             case .ready: return "Ready"
             case .completed: return "Completed"
             case .cancelled: return "Cancelled"
+            case .rejected: return "Rejected"
+            case .fraud: return "Fraud"
             }
         }
         
@@ -65,10 +71,13 @@ struct Order: Codable, Identifiable {
             switch self {
             case .pending: return "#FFA500" // Orange
             case .accepted: return "#1E90FF" // Blue
+            case .processing: return "#9932CC" // Purple
             case .preparing: return "#9932CC" // Purple
             case .ready: return "#008000" // Green
             case .completed: return "#006400" // Dark Green
             case .cancelled: return "#FF0000" // Red
+            case .rejected: return "#DC143C" // Crimson
+            case .fraud: return "#8B0000" // Dark Red
             }
         }
     }

@@ -4,14 +4,59 @@ struct OrderDetailView: View {
     let order: APIOrder
     let themeColor: Color
     var onCompleteOrder: (() -> Void)?
+    var onAcceptOrder: (() -> Void)?
+    var onRejectOrder: (() -> Void)?
+    var onReportFraud: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var isProcessing = false
+    @State private var showFraudConfirmation = false
     
     // Default parameter for backward compatibility
-    init(order: APIOrder, themeColor: Color = .blue, onCompleteOrder: (() -> Void)? = nil) {
+    init(order: APIOrder, themeColor: Color = .blue, onCompleteOrder: (() -> Void)? = nil, onAcceptOrder: (() -> Void)? = nil, onRejectOrder: (() -> Void)? = nil, onReportFraud: (() -> Void)? = nil) {
         self.order = order
         self.themeColor = themeColor
         self.onCompleteOrder = onCompleteOrder
+        self.onAcceptOrder = onAcceptOrder
+        self.onRejectOrder = onRejectOrder
+        self.onReportFraud = onReportFraud
+    }
+    
+    /// Whether the order is in a pending/not-accepted state
+    private var isNotAccepted: Bool {
+        let s = order.status.lowercased()
+        return s == "placed" || s == "pending"
+    }
+    
+    /// Whether the order can be marked as completed
+    private var canComplete: Bool {
+        let s = order.status.lowercased()
+        return s == "processing" || s == "preparing" || s == "ready" || s == "schedule" || s == "scheduled" || s == "accepted"
+    }
+    
+    /// Display label for the status
+    private var statusDisplayLabel: String {
+        let s = order.status.lowercased()
+        switch s {
+        case "placed", "pending": return "Not Accepted"
+        case "processing": return "Processing"
+        case "preparing": return "Preparing"
+        case "ready": return "Ready"
+        case "completed": return "Completed"
+        case "cancelled": return "Cancelled"
+        case "rejected": return "Rejected"
+        case "fraud": return "Fraud"
+        case "schedule", "scheduled": return "Scheduled"
+        case "accepted": return "Accepted"
+        default: return order.status.capitalized
+        }
+    }
+    
+    /// Whether the order is eligible for fraud reporting (completed + 50 mins passed)
+    private var canReportFraud: Bool {
+        guard order.status.lowercased() == "completed" else { return false }
+        guard let updatedAtStr = order.updatedAt else { return false }
+        guard let completedDate = order.parseISODateString(updatedAtStr) else { return false }
+        return Date().timeIntervalSince(completedDate) >= 50 * 60 // 50 minutes
     }
     
     var body: some View {
@@ -76,7 +121,7 @@ struct OrderDetailView: View {
                         Text("Status:")
                             .foregroundColor(.secondary)
                         
-                        Text(order.status.capitalized)
+                        Text(statusDisplayLabel)
                             .font(.subheadline)
                             .fontWeight(.semibold)
                             .padding(.horizontal, 12)
@@ -178,39 +223,112 @@ struct OrderDetailView: View {
                         Text(order.totalAmountFormatted)
                     }
                     
-                    // Tax and fees (estimated)
-                    if let amount = Double(order.totalAmount), amount > 0 {
-                        let tax = amount * 0.05 // Assuming 5% tax
+                    // Tax and fees
+                    // TODO: Tax calculation commented out for now
+                    // if let amount = Double(order.totalAmount), amount > 0 {
+                    //     let tax = amount * 0.05 // Assuming 5% tax
+                    //     Text(String(format: "₹%.2f", tax))
+                    //     Text(String(format: "₹%.2f", amount + tax))
+                    // }
+                    
+                    HStack {
+                        Text("Tax & Fees")
+                            .foregroundColor(.secondary)
                         
-                        HStack {
-                            Text("Tax & Fees")
-                                .foregroundColor(.secondary)
-                            
-                            Spacer()
-                            
-                            Text(String(format: "₹%.2f", tax))
-                        }
+                        Spacer()
                         
-                        Divider()
+                        Text("N/A")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Divider()
+                    
+                    // Total
+                    HStack {
+                        Text("Total")
+                            .fontWeight(.bold)
                         
-                        // Total
-                        HStack {
-                            Text("Total")
-                                .fontWeight(.bold)
-                            
-                            Spacer()
-                            
-                            Text(String(format: "₹%.2f", amount + tax))
-                                .fontWeight(.bold)
-                        }
+                        Spacer()
+                        
+                        Text(order.totalAmountFormatted)
+                            .fontWeight(.bold)
                     }
                 }
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(12)
                 
-                // Action Button
-                if order.status.lowercased() != "completed" && onCompleteOrder != nil {
+                // Action Buttons
+                if isNotAccepted {
+                    // Accept / Reject buttons for new orders
+                    HStack(spacing: 12) {
+                        // Reject button
+                        Button {
+                            isProcessing = true
+                            DispatchQueue.main.async {
+                                onRejectOrder?()
+                            }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                
+                                if isProcessing {
+                                    ProgressView()
+                                        .tint(.white)
+                                        .scaleEffect(0.8)
+                                        .padding(.trailing, 5)
+                                }
+                                
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                Text("Reject")
+                                    .fontWeight(.semibold)
+                                
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(isProcessing ? Color.red.opacity(0.5) : Color.red)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .disabled(isProcessing)
+                        
+                        // Accept button
+                        Button {
+                            isProcessing = true
+                            DispatchQueue.main.async {
+                                onAcceptOrder?()
+                            }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                
+                                if isProcessing {
+                                    ProgressView()
+                                        .tint(.white)
+                                        .scaleEffect(0.8)
+                                        .padding(.trailing, 5)
+                                }
+                                
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 14))
+                                Text("Accept")
+                                    .fontWeight(.semibold)
+                                
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(isProcessing ? themeColor.opacity(0.5) : themeColor)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .disabled(isProcessing)
+                    }
+                    .padding(.top, 10)
+                } else if canComplete && onCompleteOrder != nil {
+                    // Mark as Completed for processing/preparing/ready orders
                     Button {
                         isProcessing = true
                         // Use DispatchQueue to create a slight delay to ensure UI updates
@@ -242,6 +360,36 @@ struct OrderDetailView: View {
                     .padding(.top, 10)
                     .disabled(isProcessing)
                 }
+                // No action buttons for cancelled, rejected orders
+                
+                // Report Fraud button (completed orders after 50 mins)
+                if canReportFraud {
+                    Button {
+                        showFraudConfirmation = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 14))
+                            Text("Report Fraud")
+                                .fontWeight(.semibold)
+                            
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.red.opacity(0.15))
+                        .foregroundColor(.red)
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    .padding(.top, 10)
+                    .disabled(isProcessing)
+                }
             }
             .padding()
             .disabled(isProcessing)
@@ -253,6 +401,15 @@ struct OrderDetailView: View {
                     }
                 }
             )
+        }
+        .alert("Report Customer as Fraud", isPresented: $showFraudConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Block Customer", role: .destructive) {
+                isProcessing = true
+                onReportFraud?()
+            }
+        } message: {
+            Text("This customer is fraud/scam. Do you want to block them from the platform? They will not be able to order from any restaurant.")
         }
     }
     
@@ -276,13 +433,15 @@ struct OrderDetailView: View {
             return .orange
         case "schedule", "scheduled":
             return themeColor
-        case "preparing":
+        case "processing", "preparing":
             return .purple
         case "ready":
             return themeColor
         case "completed":
             return .gray
-        case "cancelled":
+        case "cancelled", "rejected":
+            return .red
+        case "fraud":
             return .red
         default:
             return .primary
@@ -312,15 +471,15 @@ struct OrderDetailView_Previews: PreviewProvider {
                 )
             ],
             totalAmount: "140",
-            status: "Schedule",
+            status: "placed",
             cookTime: 30,
             takeAway: false,
-            scheduleDate: "2025-05-19T11:30:00.000Z",
+            scheduleDate: nil,
             orderTime: "2025-05-18T13:49:22.235Z"
         )
         
-        OrderDetailView(order: sampleOrder, themeColor: .green, onCompleteOrder: {})
+        OrderDetailView(order: sampleOrder, themeColor: .green, onCompleteOrder: {}, onAcceptOrder: {}, onRejectOrder: {})
             .preferredColorScheme(.light)
     }
 }
-#endif 
+#endif

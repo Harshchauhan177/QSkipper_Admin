@@ -19,6 +19,8 @@ class ModernOrdersViewModel: ObservableObject {
         case pending = "Pending"
         case scheduled = "Scheduled"
         case completed = "Completed"
+        case rejected = "Rejected"
+        case fraud = "Fraud"
         
         var id: String { self.rawValue }
     }
@@ -35,6 +37,10 @@ class ModernOrdersViewModel: ObservableObject {
             filtered = orders.filter { $0.status.lowercased() == "schedule" || $0.status.lowercased() == "scheduled" }
         case .completed:
             filtered = orders.filter { $0.status.lowercased() == "completed" }
+        case .rejected:
+            filtered = orders.filter { $0.status.lowercased() == "rejected" }
+        case .fraud:
+            filtered = orders.filter { $0.status.lowercased() == "fraud" }
         }
         
         // Log the filter results for debugging
@@ -154,7 +160,8 @@ class ModernOrdersViewModel: ObservableObject {
             cookTime: order.cookTime,
             takeAway: order.takeAway,
             scheduleDate: order.scheduleDate,
-            orderTime: order.orderTime ?? ""
+            orderTime: order.orderTime ?? "",
+            updatedAt: order.updatedAt
         )
     }
     
@@ -231,6 +238,165 @@ class ModernOrdersViewModel: ObservableObject {
     /// Check if an order is currently being processed
     func isProcessing(_ order: APIOrder) -> Bool {
         return processingOrderId == order.id
+    }
+    
+    /// Accept a pending order (sets status to "processing")
+    func acceptOrder(_ order: APIOrder) async {
+        // Prevent double-processing
+        if processingOrderId == order.id { return }
+        
+        await MainActor.run {
+            processingOrderId = order.id
+            
+            // Optimistic UI update
+            if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                var updatedOrder = self.orders[index]
+                updatedOrder.status = "processing"
+                self.orders[index] = updatedOrder
+            }
+        }
+        
+        do {
+            let success = try await SupabaseOrderApi.shared.acceptOrder(orderId: order.id)
+            
+            await MainActor.run {
+                self.processingOrderId = nil
+                
+                if success {
+                    DebugLogger.shared.log("Order \(order.id) accepted (processing)", category: .app)
+                } else {
+                    // Revert on failure
+                    if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                        var revertedOrder = self.orders[index]
+                        revertedOrder.status = order.status
+                        self.orders[index] = revertedOrder
+                    }
+                    self.errorMessage = "Failed to accept order. Please try again."
+                    self.showError = true
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.processingOrderId = nil
+                
+                if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                    var revertedOrder = self.orders[index]
+                    revertedOrder.status = order.status
+                    self.orders[index] = revertedOrder
+                }
+                self.errorMessage = "Failed to accept order: \(error.localizedDescription)"
+                self.showError = true
+                DebugLogger.shared.log("Error accepting order: \(error.localizedDescription)", category: .error)
+            }
+        }
+    }
+    
+    /// Reject a pending order
+    func rejectOrder(_ order: APIOrder) async {
+        // Prevent double-processing
+        if processingOrderId == order.id { return }
+        
+        await MainActor.run {
+            processingOrderId = order.id
+            
+            // Optimistic UI update
+            if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                var updatedOrder = self.orders[index]
+                updatedOrder.status = "rejected"
+                self.orders[index] = updatedOrder
+            }
+        }
+        
+        do {
+            let success = try await SupabaseOrderApi.shared.rejectOrder(orderId: order.id)
+            
+            await MainActor.run {
+                self.processingOrderId = nil
+                
+                if success {
+                    DebugLogger.shared.log("Order \(order.id) rejected", category: .app)
+                } else {
+                    // Revert on failure
+                    if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                        var revertedOrder = self.orders[index]
+                        revertedOrder.status = order.status
+                        self.orders[index] = revertedOrder
+                    }
+                    self.errorMessage = "Failed to reject order. Please try again."
+                    self.showError = true
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.processingOrderId = nil
+                
+                if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                    var revertedOrder = self.orders[index]
+                    revertedOrder.status = order.status
+                    self.orders[index] = revertedOrder
+                }
+                self.errorMessage = "Failed to reject order: \(error.localizedDescription)"
+                self.showError = true
+                DebugLogger.shared.log("Error rejecting order: \(error.localizedDescription)", category: .error)
+            }
+        }
+    }
+    
+    /// Report a completed order as fraud and block the customer
+    func reportFraud(_ order: APIOrder) async {
+        if processingOrderId == order.id { return }
+        
+        await MainActor.run {
+            processingOrderId = order.id
+            
+            // Optimistic UI update
+            if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                var updatedOrder = self.orders[index]
+                updatedOrder.status = "fraud"
+                self.orders[index] = updatedOrder
+            }
+        }
+        
+        do {
+            // 1. Mark the order as fraud
+            let statusSuccess = try await SupabaseOrderApi.shared.updateOrderStatus(orderId: order.id, newStatus: "fraud")
+            
+            // 2. Block the user from the platform
+            let blockSuccess = try await SupabaseOrderApi.shared.blockUser(userId: order.userId)
+            
+            await MainActor.run {
+                self.processingOrderId = nil
+                
+                if statusSuccess && blockSuccess {
+                    self.completionSuccess = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        self.completionSuccess = false
+                    }
+                    DebugLogger.shared.log("Order \(order.id) marked as fraud, user \(order.userId) blocked", category: .app)
+                } else {
+                    if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                        var revertedOrder = self.orders[index]
+                        revertedOrder.status = order.status
+                        self.orders[index] = revertedOrder
+                    }
+                    self.errorMessage = "Failed to report fraud. Please try again."
+                    self.showError = true
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.processingOrderId = nil
+                
+                if let index = self.orders.firstIndex(where: { $0.id == order.id }) {
+                    var revertedOrder = self.orders[index]
+                    revertedOrder.status = order.status
+                    self.orders[index] = revertedOrder
+                }
+                self.errorMessage = "Failed to report fraud: \(error.localizedDescription)"
+                self.showError = true
+                DebugLogger.shared.logError(error, tag: "REPORT_FRAUD")
+            }
+        }
     }
     
     /// Reload orders (for pull-to-refresh)

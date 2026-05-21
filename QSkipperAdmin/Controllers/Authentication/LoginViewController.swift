@@ -52,15 +52,6 @@ class LoginViewController: UIViewController {
                 }
             }
             .store(in: &cancellables)
-        
-        viewModel.$navigateToRegister
-            .dropFirst()
-            .sink { [weak self] shouldNavigate in
-                if shouldNavigate {
-                    self?.navigateToRegister()
-                }
-            }
-            .store(in: &cancellables)
     }
     
     // MARK: - Navigation
@@ -97,12 +88,6 @@ class LoginViewController: UIViewController {
         })
     }
     
-    private func navigateToRegister() {
-        // Instead of presenting/pushing the view controller,
-        // post a notification to switch to register view in ContentView
-        NotificationCenter.default.post(name: NSNotification.Name("ShowRegisterScreen"), object: nil)
-        DebugLogger.shared.log("Posted notification to show register screen", category: .navigation)
-    }
 }
 
 // MARK: - LoginControllerView
@@ -110,6 +95,7 @@ struct LoginControllerView: View {
     @ObservedObject var viewModel: LoginControllerViewModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.colorScheme) private var colorScheme
+    @State private var showForgotPassword = false
     
     var body: some View {
         GeometryReader { geometry in
@@ -217,6 +203,9 @@ struct LoginControllerView: View {
             }
         }
         .animation(.easeInOut, value: viewModel.showErrorAlert)
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView()
+        }
     }
     
     // Branding view for iPad layout
@@ -289,17 +278,17 @@ struct LoginControllerView: View {
             }
             
             // Forgot password
-//            HStack {
-//                Spacer()
-//                
-//                Button(action: {
-//                    // viewModel.forgotPassword()
-//                }) {
-//                    Text("Forgot Password?")
-//                        .font(AppFonts.caption)
-//                        .foregroundColor(AppColors.primaryGreen)
-//                }
-//            }
+            HStack {
+                Spacer()
+                
+                Button(action: {
+                    showForgotPassword = true
+                }) {
+                    Text("Forgot Password?")
+                        .font(AppFonts.caption)
+                        .foregroundColor(AppColors.primaryGreen)
+                }
+            }
             .padding(.top, 4)
             
             // Login button
@@ -324,28 +313,7 @@ struct LoginControllerView: View {
             .padding(.top, 16)
             .disabled(viewModel.isLoading)
             
-            // Register link
-            HStack {
-                Text("Don't have an account?")
-                    .font(AppFonts.caption)
-                    .foregroundColor(AppColors.mediumGray)
-                
-                Button(action: {
-                    viewModel.navigateToRegister = true
-                }) {
-                    Text("Sign Up")
-                        .font(AppFonts.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(AppColors.primaryGreen)
-                }
-                .onTapGesture {
-                    // Add an additional direct post of the notification
-                    // This ensures it works even if the view model binding fails
-                    NotificationCenter.default.post(name: NSNotification.Name("ShowRegisterScreen"), object: nil)
-                    DebugLogger.shared.log("Sign Up button tapped directly", category: .userAction)
-                }
-            }
-            .padding(.top, 8)
+
         }
     }
 }
@@ -363,7 +331,6 @@ class LoginControllerViewModel: ObservableObject {
     @Published var errorMessage = ""
     
     @Published var navigateToHome = false
-    @Published var navigateToRegister = false
     
     // Validation
     private func validateInputs() -> Bool {
@@ -426,8 +393,4 @@ class LoginControllerViewModel: ObservableObject {
             }
         }
     }
-    
-    func register() {
-        navigateToRegister = true
-    }
-} 
+}

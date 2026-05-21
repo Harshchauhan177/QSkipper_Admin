@@ -36,5 +36,6 @@ struct SupabaseConfig {
         static let products = "products"
         static let orders = "orders"
         static let orderItems = "order_items"
+        static let blockedUsers = "blocked_users"
     }
 }

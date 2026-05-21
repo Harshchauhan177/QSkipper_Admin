@@ -7,7 +7,7 @@ struct LoginView: View {
     // State
     @State private var email = ""
     @State private var password = ""
-    @State private var showRegistration = false
+
     
     var body: some View {
         NavigationView {
@@ -80,22 +80,13 @@ struct LoginView: View {
                     .shadow(radius: 2)
                     .padding(.horizontal)
                     
-                    // Register navigation
-                    NavigationLink(destination: RegisterFormView()) {
-                        Text("Don't have an account? Sign Up")
-                            .font(AppFonts.body)
-                            .foregroundColor(Color(AppColors.primaryGreen))
-                    }
-                    .padding(.top)
+
                 }
                 .padding()
             }
             .navigationTitle("")
             .navigationBarHidden(true)
-            .sheet(isPresented: $showRegistration) {
-                RegisterFormView()
-                    .environmentObject(authService)
-            }
+
         }
     }
     

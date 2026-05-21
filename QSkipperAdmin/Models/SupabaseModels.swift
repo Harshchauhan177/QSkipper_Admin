@@ -146,10 +146,11 @@ struct SupabaseOrder: Codable, Identifiable {
         switch status.lowercased() {
         case "placed", "pending": return "orange"
         case "schedule", "scheduled": return "green"
-        case "preparing": return "purple"
+        case "processing", "preparing": return "purple"
         case "ready": return "green"
         case "completed": return "gray"
-        case "cancelled": return "red"
+        case "cancelled", "rejected": return "red"
+        case "fraud": return "red"
         default: return "primary"
         }
     }

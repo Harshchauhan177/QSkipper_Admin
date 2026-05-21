@@ -10,7 +10,7 @@ class LoginViewModel: ObservableObject {
     @Published var isLoggingIn: Bool = false
     @Published var errorMessage: String = ""
     @Published var showErrorAlert: Bool = false
-    @Published var navigateToRegister: Bool = false
+
     
     private let authService = AuthService.shared
     private var cancellables = Set<AnyCancellable>()

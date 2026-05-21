@@ -115,10 +115,18 @@ class SupabaseOrderApi: ObservableObject {
     
     // MARK: - Accept Order
     
-    /// Accept a pending order
+    /// Accept a pending order (sets status to "processing")
     @MainActor
     func acceptOrder(orderId: String) async throws -> Bool {
-        return try await updateOrderStatus(orderId: orderId, newStatus: "preparing")
+        return try await updateOrderStatus(orderId: orderId, newStatus: "processing")
+    }
+    
+    // MARK: - Reject Order
+    
+    /// Reject a pending order
+    @MainActor
+    func rejectOrder(orderId: String) async throws -> Bool {
+        return try await updateOrderStatus(orderId: orderId, newStatus: "rejected")
     }
     
     // MARK: - Mark Order Ready
@@ -169,5 +177,43 @@ class SupabaseOrderApi: ObservableObject {
             DebugLogger.shared.logError(error, tag: "ORDER_COUNTS")
             return (0, 0, 0, 0)
         }
+    }
+    
+    // MARK: - Block User (Fraud)
+    
+    /// Block a user from the platform by inserting into blocked_users table
+    @MainActor
+    func blockUser(userId: String) async throws -> Bool {
+        let blockedEntry = BlockedUserInsert(
+            userId: userId,
+            reason: "Marked as fraud by restaurant admin"
+        )
+        
+        try await client
+            .from("blocked_users")
+            .insert(blockedEntry)
+            .execute()
+        
+        DebugLogger.shared.log("User \(userId) blocked from platform", category: .network)
+        return true
+    }
+    
+    // MARK: - Mark Order as Fraud
+    
+    /// Mark an order as fraud
+    @MainActor
+    func markOrderFraud(orderId: String) async throws -> Bool {
+        return try await updateOrderStatus(orderId: orderId, newStatus: "fraud")
+    }
+}
+
+/// Model for inserting a blocked user record
+struct BlockedUserInsert: Codable {
+    let userId: String
+    let reason: String
+    
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case reason
     }
 }

@@ -5,7 +5,6 @@ struct ModernOrdersView: View {
     @StateObject private var viewModel = ModernOrdersViewModel()
     @State private var refreshing = false
     @State private var selectedOrder: APIOrder?
-    @State private var showOrderDetail = false
     
     // App theme colors
     private let themeColor = Color.green
@@ -91,16 +90,28 @@ struct ModernOrdersView: View {
                     dismissButton: .default(Text("OK"))
                 )
             })
-            .sheet(isPresented: $showOrderDetail, content: {
-                if let order = selectedOrder {
+            .sheet(item: $selectedOrder, content: { order in
                     OrderDetailView(order: order, themeColor: themeColor, onCompleteOrder: {
                         Task {
                             await viewModel.completeOrder(order)
-                            // Dismiss the sheet after marking as completed
-                            showOrderDetail = false 
+                            selectedOrder = nil
+                        }
+                    }, onAcceptOrder: {
+                        Task {
+                            await viewModel.acceptOrder(order)
+                            selectedOrder = nil
+                        }
+                    }, onRejectOrder: {
+                        Task {
+                            await viewModel.rejectOrder(order)
+                            selectedOrder = nil
+                        }
+                    }, onReportFraud: {
+                        Task {
+                            await viewModel.reportFraud(order)
+                            selectedOrder = nil
                         }
                     })
-                }
             })
             .animation(.easeInOut(duration: 0.3), value: viewModel.completionSuccess)
         }
@@ -219,14 +230,22 @@ struct ModernOrdersView: View {
                         isProcessing: viewModel.isProcessing(order),
                         onCompleteOrder: {
                         completeOrder(order)
+                    },
+                        onAcceptOrder: {
+                        acceptOrder(order)
+                    },
+                        onRejectOrder: {
+                        rejectOrder(order)
+                    },
+                        onReportFraud: {
+                        reportFraud(order)
                     }
                     )
                     .padding(.horizontal)
                     .onTapGesture {
                         // Don't open details for processing orders
                         if !viewModel.isProcessing(order) {
-                        selectedOrder = order
-                        showOrderDetail = true
+                            selectedOrder = order
                         }
                     }
                     // Add a subtle animation when status changes
@@ -262,6 +281,27 @@ struct ModernOrdersView: View {
         // Use a Task for async work
         Task {
             await viewModel.completeOrder(order)
+        }
+    }
+    
+    private func acceptOrder(_ order: APIOrder) {
+        guard !viewModel.isProcessing(order) else { return }
+        Task {
+            await viewModel.acceptOrder(order)
+        }
+    }
+    
+    private func rejectOrder(_ order: APIOrder) {
+        guard !viewModel.isProcessing(order) else { return }
+        Task {
+            await viewModel.rejectOrder(order)
+        }
+    }
+    
+    private func reportFraud(_ order: APIOrder) {
+        guard !viewModel.isProcessing(order) else { return }
+        Task {
+            await viewModel.reportFraud(order)
         }
     }
 }

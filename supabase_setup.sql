@@ -245,5 +245,29 @@ AS $$
 $$;
 
 -- ============================================
+-- 9. BLOCKED USERS TABLE (for fraud reporting)
+-- ============================================
+CREATE TABLE IF NOT EXISTS blocked_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id),
+    reason TEXT DEFAULT '',
+    blocked_at TIMESTAMPTZ DEFAULT now(),
+    blocked_by UUID REFERENCES auth.users(id)
+);
+
+-- RLS for blocked_users
+ALTER TABLE blocked_users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Restaurant owners can insert blocked users"
+    ON blocked_users FOR INSERT
+    TO authenticated
+    WITH CHECK (true);
+
+CREATE POLICY "Restaurant owners can view blocked users"
+    ON blocked_users FOR SELECT
+    TO authenticated
+    USING (true);
+
+-- ============================================
 -- DONE! Your database is ready.
 -- ============================================
