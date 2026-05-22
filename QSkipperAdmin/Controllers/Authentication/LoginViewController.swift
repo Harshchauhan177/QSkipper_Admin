@@ -72,6 +72,7 @@ class LoginViewController: UIViewController {
         let contentView = ContentView()
             .environmentObject(AuthService.shared)
             .environmentObject(DataController.shared)
+            .environmentObject(ProductService.shared)
             .modifier(DeviceAdaptiveModifier())
         
         // Create a hosting controller for the ContentView

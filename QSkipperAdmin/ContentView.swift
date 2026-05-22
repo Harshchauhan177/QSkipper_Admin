@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var authService: AuthService
+    @EnvironmentObject private var productService: ProductService
     
     var body: some View {
         Group {
@@ -17,6 +18,7 @@ struct ContentView: View {
                 MainView()
                     .environmentObject(authService)
                     .environmentObject(DataController.shared)
+                    .environmentObject(productService)
                     .transition(.opacity)
             } else {
                 // Use LoginViewController from QSkipperAdminApp.swift
@@ -33,5 +35,6 @@ struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
             .environmentObject(AuthService())
+            .environmentObject(ProductService())
     }
 }

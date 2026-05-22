@@ -151,7 +151,7 @@ struct ProductsView: View {
                         Color.clear.frame(height: 8)
                         LazyVGrid(
                             columns: [
-                                GridItem(.adaptive(minimum: 320, maximum: 320), spacing: 16)
+                                GridItem(.adaptive(minimum: 280), spacing: 16)
                             ],
                             spacing: 16
                         ) {
@@ -215,6 +215,7 @@ struct ProductsView: View {
             if let product = selectedProduct {
                 ProductFormView(isPresented: $showEditProductSheet, product: product)
                     .environmentObject(productService)
+                    .environmentObject(authService)
             }
         }
         .sheet(isPresented: $showProductDetailSheet) {
@@ -368,22 +369,23 @@ struct ProductCard: View {
                     Rectangle()
                         .fill(Color.gray.opacity(0.1))
                         .frame(height: 200)
-                        .clipped()
                         .overlay(
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle())
                         )
                 } else if let image = productImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
+                    Color.clear
                         .frame(height: 200)
+                        .background(
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        )
                         .clipped()
                 } else {
                     Rectangle()
                         .fill(Color.gray.opacity(0.1))
                         .frame(height: 200)
-                        .clipped()
                         .overlay(
                             Image(systemName: "photo")
                                 .foregroundColor(.gray)
@@ -459,9 +461,8 @@ struct ProductCard: View {
             .padding(.vertical, 12)
         }
         .background(Color.white)
-        .cornerRadius(12)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
-        .frame(width: 320, height: 320) // Fixed size for consistent grid layout
     }
     
     private func loadProductImage() {

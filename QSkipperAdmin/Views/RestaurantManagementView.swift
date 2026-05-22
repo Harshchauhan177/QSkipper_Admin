@@ -35,6 +35,7 @@ struct RestaurantManagementView: View {
     @State private var estimatedTime: String = ""
     @State private var selectedCuisine: String = ""
     @State private var restaurantImage: UIImage? = nil
+    @State private var isLoadingRestaurantImage = false
     @State private var isImagePickerShown = false
     @State private var isRegistered: Bool = true // Default to true, will be updated in onAppear
     
@@ -116,14 +117,15 @@ struct RestaurantManagementView: View {
             return Text("")
         })
         .onAppear {
-            // First check registration status
+            // First check registration status (synchronous)
             checkRegistrationStatus()
             
-            // Then load restaurant data (which will only load if registered)
+            // Then load restaurant data from local sources (synchronous)
             loadRestaurantData()
             
-            // Load restaurant image from Supabase if registered
-            if isRegistered {
+            // Load restaurant image from Supabase if registered and no image yet
+            if isRegistered && restaurantImage == nil {
+                isLoadingRestaurantImage = true
                 Task {
                     if let restaurant = try? await SupabaseRestaurantService.shared.fetchMyRestaurant() {
                         if let bannerUrl = restaurant.bannerImageUrl {
@@ -135,11 +137,16 @@ struct RestaurantManagementView: View {
                                 }
                             }
                         }
-                        // Also update local fields from Supabase data
+                        // Also update local fields from Supabase data if still empty
                         await MainActor.run {
                             if restaurantName.isEmpty { restaurantName = restaurant.name }
                             if selectedCuisine.isEmpty { selectedCuisine = restaurant.cuisine }
                             if estimatedTime.isEmpty { estimatedTime = String(restaurant.estimatedTime) }
+                            self.isLoadingRestaurantImage = false
+                        }
+                    } else {
+                        await MainActor.run {
+                            self.isLoadingRestaurantImage = false
                         }
                     }
                 }
@@ -223,6 +230,15 @@ struct RestaurantManagementView: View {
                         .scaledToFit()
                         .frame(height: 150)
                         .cornerRadius(8)
+                } else if isLoadingRestaurantImage {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 150)
+                        .cornerRadius(8)
+                        .overlay(
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                        )
                 } else {
                     Rectangle()
                         .fill(Color.gray.opacity(0.2))
@@ -350,21 +366,7 @@ struct RestaurantManagementView: View {
             restaurantName = dataController.restaurant.name
         }
         
-        // Try to load restaurant image from Supabase
-        if restaurantImage == nil {
-            Task {
-                if let restaurant = try? await SupabaseRestaurantService.shared.fetchMyRestaurant(),
-                   let bannerUrl = restaurant.bannerImageUrl {
-                    let image = await SupabaseRestaurantService.shared.fetchRestaurantImage(url: bannerUrl)
-                    await MainActor.run {
-                        if let image = image {
-                            self.restaurantImage = image
-                            DebugLogger.shared.log("Successfully loaded restaurant image from Supabase", category: .network, tag: "RESTAURANT_MANAGEMENT")
-                        }
-                    }
-                }
-            }
-        }
+        // Restaurant image is loaded in onAppear to avoid duplicate async tasks
         
         // Finally, load restaurant data from UserDefaults (overrides other sources if available)
         if let restaurantDataEncoded = UserDefaults.standard.data(forKey: "restaurant_data"),

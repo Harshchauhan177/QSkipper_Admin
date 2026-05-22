@@ -373,7 +373,9 @@ class NetworkManager {
     func registerRestaurantDirect(currentUser: UserAuth) async throws -> User? {
         DebugLogger.shared.log("Using direct registration method for restaurant with email: \(currentUser.email)", category: .network)
         
-        let registerUrl = URL(string: NetworkManager.baseURL + "/resturant-register")!
+        guard let registerUrl = URL(string: NetworkManager.baseURL + "/resturant-register") else {
+            throw NetworkError.invalidURL
+        }
         var request = URLRequest(url: registerUrl)
         
         request.httpMethod = "POST"
@@ -432,7 +434,9 @@ class NetworkManager {
     func loginRestaurantDirect(currentUser: UserAuth) async throws -> UserResponse? {
         DebugLogger.shared.log("Using direct login method for restaurant with email: \(currentUser.email)", category: .network)
         
-        let loginUrl = URL(string: NetworkManager.baseURL + "/resturant-login")!
+        guard let loginUrl = URL(string: NetworkManager.baseURL + "/resturant-login") else {
+            throw NetworkError.invalidURL
+        }
         var request = URLRequest(url: loginUrl)
         
         request.httpMethod = "POST"

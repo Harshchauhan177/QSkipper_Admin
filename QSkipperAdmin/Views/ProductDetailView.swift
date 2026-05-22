@@ -230,6 +230,7 @@ struct ProductDetailView: View {
             .sheet(isPresented: $showEditSheet) {
                 ProductFormView(isPresented: $showEditSheet, product: product)
                     .environmentObject(productService)
+                    .environmentObject(AuthService.shared)
             }
             .alert(isPresented: $isShowingDeleteAlert) {
                 Alert(
