@@ -143,7 +143,7 @@ class ModernOrdersViewModel: ObservableObject {
     private func convertToAPIOrder(_ order: SupabaseOrder) -> APIOrder {
         let items = (order.orderItems ?? []).map { item in
             APIOrderProduct(
-                id: item.id ?? "",
+                id: item.id ?? UUID().uuidString,
                 name: item.name,
                 quantity: item.quantity,
                 price: Int(item.price)
@@ -151,7 +151,7 @@ class ModernOrdersViewModel: ObservableObject {
         }
         
         return APIOrder(
-            id: order.id ?? "",
+            id: order.id ?? UUID().uuidString,
             restaurantId: order.restaurantId,
             userId: order.userId,
             items: items,

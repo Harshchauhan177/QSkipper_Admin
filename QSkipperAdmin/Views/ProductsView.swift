@@ -18,7 +18,7 @@ struct ProductsView: View {
     @State private var showDebugInfo = false
     @State private var selectedProduct: Product? = nil
     @State private var showEditProductSheet = false
-    @State private var showProductDetailSheet = false
+
     @State private var productToView: Product? = nil
     @State private var isLoadingProductDetails = false
     @State private var showLoadingOverlay = false
@@ -218,14 +218,11 @@ struct ProductsView: View {
                     .environmentObject(authService)
             }
         }
-        .sheet(isPresented: $showProductDetailSheet) {
-            // Reload products after viewing details
+        .sheet(item: $productToView, onDismiss: {
             loadProducts()
-        } content: {
-            if let product = productToView {
-                ProductDetailView(product: product)
-                    .environmentObject(productService)
-            }
+        }) { product in
+            ProductDetailView(product: product)
+                .environmentObject(productService)
         }
         .onAppear {
             loadProducts()
@@ -245,9 +242,8 @@ struct ProductsView: View {
         Task {
             // Just use the cached product since Supabase data is already up-to-date
             await MainActor.run {
-                productToView = product
                 showLoadingOverlay = false
-                showProductDetailSheet = true
+                productToView = product
             }
         }
     }
@@ -347,7 +343,7 @@ struct ProductsView: View {
             isAvailable: sp.isAvailable,
             isActive: sp.isActive
         )
-        product.id = sp.id ?? ""
+        product.id = sp.id ?? UUID().uuidString
         product.isFeatured = sp.isFeatured
         product.imageUrl = sp.imageUrl
         return product

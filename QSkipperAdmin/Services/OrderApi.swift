@@ -31,7 +31,7 @@ struct APIOrderResponse: Codable {
 }
 
 // MARK: - Order Item Model
-struct APIOrder: Codable, Identifiable {
+struct APIOrder: Codable, Identifiable, Hashable {
     let id: String
     let restaurantId: String
     let userId: String
@@ -239,10 +239,19 @@ struct APIOrder: Codable, Identifiable {
         }
         return totalAmount
     }
+    
+    // MARK: - Hashable & Equatable (identity by id only)
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: APIOrder, rhs: APIOrder) -> Bool {
+        return lhs.id == rhs.id
+    }
 }
 
 // MARK: - Order Product Model
-struct APIOrderProduct: Codable, Identifiable {
+struct APIOrderProduct: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let quantity: Int
@@ -253,6 +262,15 @@ struct APIOrderProduct: Codable, Identifiable {
         case name
         case quantity
         case price
+    }
+    
+    // MARK: - Hashable & Equatable (identity by id only)
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: APIOrderProduct, rhs: APIOrderProduct) -> Bool {
+        return lhs.id == rhs.id
     }
 }
 

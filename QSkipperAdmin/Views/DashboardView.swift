@@ -76,7 +76,7 @@ struct DashboardView: View {
                         isAvailable: sp.isAvailable,
                         isActive: sp.isActive
                     )
-                    product.id = sp.id ?? ""
+                    product.id = sp.id ?? UUID().uuidString
                     product.isFeatured = sp.isFeatured
                     product.imageUrl = sp.imageUrl
                     return product

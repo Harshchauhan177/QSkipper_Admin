@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 // MARK: - Product Model
-struct Product: Codable, Identifiable {
+struct Product: Codable, Identifiable, Hashable {
     var id: String
     var name: String
     var price: Int
@@ -83,6 +83,16 @@ struct Product: Codable, Identifiable {
                 productPhoto64Image = nil
             }
         }
+    }
+    
+    
+    // MARK: - Hashable & Equatable (identity by id only)
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: Product, rhs: Product) -> Bool {
+        return lhs.id == rhs.id
     }
     
     enum CodingKeys: String, CodingKey {
