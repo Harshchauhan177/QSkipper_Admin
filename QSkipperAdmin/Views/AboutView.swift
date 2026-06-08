@@ -10,8 +10,8 @@ import SwiftUI
 struct AboutView: View {
     
     let currentDevelopers = [
-        ("Anshu Nagar", "Developer", "chevron.left.forwardslash.chevron.right", Color.indigo),
-        ("Harsh Kumar", "Developer", "terminal.fill", Color.teal)
+        ("Anshu Nagar", "Developer", "chevron.left.forwardslash.chevron.right", Color.indigo, "https://www.linkedin.com/in/anshu-nagar-2360a6266/"),
+        ("Harsh Kumar", "Developer", "terminal.fill", Color.teal, "https://www.linkedin.com/in/harsh-kumar-550783270/")
     ]
     
     let teamMembers = [
@@ -86,12 +86,14 @@ struct AboutView: View {
                         
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                             ForEach(currentDevelopers, id: \.0) { member in
-                                TeamMemberView(
-                                    name: member.0,
-                                    role: member.1,
-                                    color: member.3,
-                                    icon: member.2
-                                )
+                                Link(destination: URL(string: member.4)!) {
+                                    TeamMemberView(
+                                        name: member.0,
+                                        role: member.1,
+                                        color: member.3,
+                                        icon: member.2
+                                    )
+                                }
                             }
                         }
                     }
@@ -102,7 +104,7 @@ struct AboutView: View {
                     
                     // Team Members section
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Our Team")
+                        Text("Original Developers")
                             .font(.title2)
                             .fontWeight(.semibold)
                             .padding(.bottom, 8)
@@ -132,7 +134,7 @@ struct AboutView: View {
                         HStack {
                             Image(systemName: "envelope.fill")
                                 .foregroundColor(.green)
-                            Text("team.qskipper@gmail.com")
+                            Text("help.qskipper@gmail.com")
                                 .font(.body)
                         }
                         

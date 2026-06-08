@@ -142,7 +142,16 @@ struct ProductFormView: View {
                     isAvailable = existingProduct.isAvailable
                     isFeatured = existingProduct.isFeatured
                     extraTime = existingProduct.extraTime
-                    selectedImage = existingProduct.productPhoto
+                    // Load image from URL (productPhoto is nil since base64 data isn't populated from Supabase)
+                    if let imageUrl = existingProduct.imageUrl, !imageUrl.isEmpty {
+                        Task {
+                            if let image = await SupabaseProductApi.shared.fetchImage(from: imageUrl) {
+                                await MainActor.run {
+                                    selectedImage = image
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -205,11 +214,22 @@ struct ProductFormView: View {
         Task {
             do {
                 if let existingProduct = product {
-                    // Update existing product
-                    _ = try await productService.updateProduct(
+                    // Update existing product using Supabase API directly
+                    let supabaseProduct = SupabaseProduct(
+                        id: existingProduct.id,
+                        restaurantId: restaurantId,
+                        name: name,
+                        price: Double(priceValue),
+                        category: category,
+                        description: description,
+                        extraTime: extraTime,
+                        isAvailable: isAvailable,
+                        isFeatured: isFeatured,
+                        imageUrl: existingProduct.imageUrl
+                    )
+                    _ = try await SupabaseProductApi.shared.updateProduct(
                         productId: existingProduct.id,
-                        product: updatedProduct,
-                        // Only pass image if it was changed
+                        product: supabaseProduct,
                         image: imageChanged ? selectedImage : nil
                     )
                     
