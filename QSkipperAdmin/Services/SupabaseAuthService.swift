@@ -38,19 +38,34 @@ class SupabaseAuthService: ObservableObject {
             self.currentUserId = session.user.id.uuidString
             self.isAuthenticated = true
             
-            // Ensure UserDefaults are synced for legacy code compatibility
-            UserDefaults.standard.set(session.user.id.uuidString, forKey: "user_id")
-            UserDefaults.standard.set(session.user.id.uuidString, forKey: "qskipper_user_id")
-            UserDefaults.standard.set(true, forKey: "isLoggedIn")
-            
             DebugLogger.shared.log("Active session found for user: \(session.user.id)", category: .auth)
             
             // Load restaurant data
             await loadMyRestaurant()
+            
+            // Propagate valid session to AuthService (drives the UI via ContentView)
+            let userId = session.user.id.uuidString
+            let restaurantId = self.currentRestaurant?.id ?? UserDefaults.standard.string(forKey: "restaurant_id") ?? userId
+            AuthService.shared.isAuthenticated = true
+            AuthService.shared.currentUser = UserRestaurantProfile(
+                id: userId,
+                restaurantId: restaurantId,
+                restaurantName: self.currentRestaurant?.name ?? "",
+                estimatedTime: 30,
+                cuisine: "",
+                restaurantImage: nil
+            )
+            
+            DebugLogger.shared.log("Session validated — AuthService synced for user: \(userId)", category: .auth)
         } catch {
             self.isAuthenticated = false
             self.currentUserId = nil
-            DebugLogger.shared.log("No active session", category: .auth)
+            self.currentRestaurant = nil
+            DebugLogger.shared.log("Session expired or invalid — forcing logout", category: .auth)
+            
+            // Propagate session failure to AuthService — forces UI back to login screen
+            AuthService.shared.isAuthenticated = false
+            AuthService.shared.currentUser = nil
         }
     }
     
@@ -71,12 +86,18 @@ class SupabaseAuthService: ObservableObject {
             self.currentUserId = response.user.id.uuidString
             self.isAuthenticated = true
             
-            // Save to UserDefaults for compatibility with existing code
-            UserDefaults.standard.set(response.user.id.uuidString, forKey: "user_id")
-            UserDefaults.standard.set(response.user.id.uuidString, forKey: "qskipper_user_id")
-            UserDefaults.standard.set(true, forKey: "isLoggedIn")
-            
             DebugLogger.shared.log("Sign up successful for: \(email)", category: .auth)
+            
+            // Propagate to AuthService (drives the UI via ContentView)
+            AuthService.shared.isAuthenticated = true
+            AuthService.shared.currentUser = UserRestaurantProfile(
+                id: response.user.id.uuidString,
+                restaurantId: response.user.id.uuidString,
+                restaurantName: "",
+                estimatedTime: 30,
+                cuisine: "",
+                restaurantImage: nil
+            )
             isLoading = false
             return true
             
@@ -105,15 +126,29 @@ class SupabaseAuthService: ObservableObject {
             self.currentUserId = session.user.id.uuidString
             self.isAuthenticated = true
             
-            // Save to UserDefaults for compatibility
-            UserDefaults.standard.set(session.user.id.uuidString, forKey: "user_id")
-            UserDefaults.standard.set(session.user.id.uuidString, forKey: "qskipper_user_id")
-            UserDefaults.standard.set(true, forKey: "isLoggedIn")
-            
             DebugLogger.shared.log("Sign in successful for: \(email)", category: .auth)
             
             // Load restaurant data after login
             await loadMyRestaurant()
+            
+            // Propagate to AuthService (drives the UI via ContentView)
+            let userId = session.user.id.uuidString
+            let restaurantId = self.currentRestaurant?.id ?? userId
+            AuthService.shared.isAuthenticated = true
+            AuthService.shared.currentUser = UserRestaurantProfile(
+                id: userId,
+                restaurantId: restaurantId,
+                restaurantName: self.currentRestaurant?.name ?? "",
+                estimatedTime: 30,
+                cuisine: "",
+                restaurantImage: nil
+            )
+            
+            // Sync restaurant_id for API calls (business data, not auth credentials)
+            if let rid = self.currentRestaurant?.id {
+                UserDefaults.standard.set(rid, forKey: "restaurant_id")
+                UserDefaults.standard.set(true, forKey: "is_restaurant_registered")
+            }
             
             isLoading = false
             return true

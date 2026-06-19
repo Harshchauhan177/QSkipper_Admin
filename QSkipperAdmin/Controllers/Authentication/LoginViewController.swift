@@ -56,37 +56,10 @@ class LoginViewController: UIViewController {
     
     // MARK: - Navigation
     private func navigateToHome() {
-        // Instead of setting RootSplitViewController, just update AuthService's state
-        // This will trigger ContentView to show our new SwiftUI MainView
-        DispatchQueue.main.async {
-            // The ContentView observes this and will automatically show MainView
-            DebugLogger.shared.log("Setting authenticated state to true", category: .navigation)
-        }
-        
-        // Get a reference to the window scene
-        let scenes = UIApplication.shared.connectedScenes
-        let windowScene = scenes.first as? UIWindowScene
-        let window = windowScene?.windows.first
-        
-        // Create a new ContentView with the updated auth state
-        let contentView = ContentView()
-            .environmentObject(AuthService.shared)
-            .environmentObject(DataController.shared)
-            .environmentObject(ProductService.shared)
-            .modifier(DeviceAdaptiveModifier())
-        
-        // Create a hosting controller for the ContentView
-        let hostingController = UIHostingController(rootView: contentView)
-        
-        // Animate transition
-        UIView.transition(with: window!, 
-                         duration: 0.4, 
-                         options: .transitionCrossDissolve, 
-                         animations: {
-            // Set the root view controller directly
-            window?.rootViewController = hostingController
-            DebugLogger.shared.log("Root view controller changed to ContentView", category: .navigation)
-        })
+        // Auth state is now reactive — ContentView automatically switches
+        // from LoginViewControllerRepresentable to MainView when
+        // AuthService.shared.isAuthenticated becomes true.
+        DebugLogger.shared.log("navigateToHome called — reactive auth will handle view transition", category: .navigation)
     }
     
 }

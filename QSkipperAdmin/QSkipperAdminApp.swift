@@ -10,7 +10,7 @@ import SwiftUI
 @main
 struct QSkipperAdminApp: App {
     // Create services that will be shared across the app
-    @StateObject private var authService = AuthService()
+    @StateObject private var authService = AuthService.shared
     @StateObject private var dataController = DataController.shared
     @StateObject private var productService = ProductService()
     

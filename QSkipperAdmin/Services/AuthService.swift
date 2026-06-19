@@ -31,41 +31,19 @@ class AuthService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     
     init() {
-        // Check for existing ID on launch
-        if let userId = getUserId() {
-            // Set authenticated immediately based on user ID
-            self.isAuthenticated = true
-            DebugLogger.shared.log("User ID found (\(userId)), setting authenticated state to true", category: .auth)
-            
-            // Check if we also have a token
-            if let token = getToken() {
-                DebugLogger.shared.log("Auth token also found for user \(userId)", category: .auth)
-                
-                // Get the correct restaurant ID from UserDefaults if available
-                let restaurantId = UserDefaults.standard.string(forKey: "restaurant_id") ?? userId
-                DebugLogger.shared.log("Found restaurant ID: \(restaurantId)", category: .auth)
-                
-                // Create minimal profile
-                self.currentUser = UserRestaurantProfile(
-                    id: userId,
-                    restaurantId: restaurantId,
-                    restaurantName: "",
-                    estimatedTime: 30,
-                    cuisine: "",
-                    restaurantImage: nil
-                )
-            }
-        } else {
-            // No ID found, ensure user is logged out
-            self.isAuthenticated = false
-            DebugLogger.shared.log("No user ID found, user is not authenticated", category: .auth)
-            
-            // Clear any leftover tokens to be safe
-            UserDefaults.standard.removeObject(forKey: StorageKeys.authToken)
-            NetworkManager.shared.clearAuthToken()
+        // Start unauthenticated. The async SupabaseAuthService.checkSession() below
+        // will validate the Keychain-backed JWT and set isAuthenticated = true if valid.
+        // This avoids calling the async `auth.session` property from a sync init.
+        self.isAuthenticated = false
+        self.currentUser = nil
+        
+        // Kick off async session validation (reads JWT from Keychain, refreshes if needed,
+        // loads restaurant data). checkSession() propagates the result back to this instance.
+        Task { @MainActor in
+            await SupabaseAuthService.shared.checkSession()
         }
         
-        DebugLogger.shared.log("AuthService initialized", category: .auth)
+        DebugLogger.shared.log("AuthService initialized — awaiting Supabase session validation", category: .auth)
     }
     
     // MARK: - Public Methods
@@ -455,31 +433,36 @@ class AuthService: ObservableObject {
         DebugLogger.shared.log("All user data cleared from UserDefaults and memory", category: .auth)
     }
     
-    // MARK: - Token Management
+    // MARK: - Token Management (Supabase Keychain-backed)
     
-    /// Get the stored auth token
-    /// - Returns: Auth token string if available
+    /// Get the auth token.
+    /// Legacy UserDefaults token storage has been removed — Supabase SDK
+    /// manages JWT persistence securely in the iOS Keychain.
+    /// For async token access, use `SupabaseAuthService.shared.getToken()`.
+    /// - Returns: nil (legacy — use SupabaseAuthService for actual token)
     func getToken() -> String? {
-        return UserDefaults.standard.string(forKey: StorageKeys.authToken)
+        // Supabase SDK manages tokens in Keychain — no local UserDefaults token.
+        return nil
     }
     
-    /// Get the stored user ID
-    /// - Returns: User ID string if available
+    /// Get the current user ID from the Supabase session.
+    /// - Returns: User ID string if an active session exists
     func getUserId() -> String? {
-        return UserDefaults.standard.string(forKey: StorageKeys.userId)
+        return SupabaseAuthService.shared.getUserId()
     }
     
-    /// Save auth token
-    /// - Parameter token: The token to save
+    /// Save auth token — no-op. Supabase SDK stores tokens securely in Keychain.
+    /// - Parameter token: Ignored
     private func saveToken(token: String) {
-        UserDefaults.standard.set(token, forKey: StorageKeys.authToken)
-        NetworkManager.shared.setAuthToken(token)
+        // No-op: Supabase SDK handles token persistence in Keychain.
+        DebugLogger.shared.log("saveToken called (no-op — Supabase manages tokens in Keychain)", category: .auth)
     }
     
-    /// Save user ID
-    /// - Parameter userId: The user ID to save
+    /// Save user ID — no-op. User ID is derived from the Supabase session.
+    /// - Parameter userId: Ignored
     private func saveUserId(userId: String) {
-        UserDefaults.standard.set(userId, forKey: StorageKeys.userId)
+        // No-op: user ID comes from the Supabase session, not UserDefaults.
+        DebugLogger.shared.log("saveUserId called (no-op — ID derived from Supabase session)", category: .auth)
     }
     
     /// Update user data

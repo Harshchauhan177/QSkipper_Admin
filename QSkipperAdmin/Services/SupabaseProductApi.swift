@@ -33,6 +33,12 @@ class SupabaseProductApi: ObservableObject {
         
         defer { isLoading = false }
         
+        // Auth guard: don't fetch if no authenticated session exists
+        guard SupabaseAuthService.shared.isAuthenticated else {
+            DebugLogger.shared.log("Skipping product fetch — user not authenticated", category: .network)
+            return []
+        }
+        
         // Get restaurant ID from parameter, auth service, or UserDefaults
         let targetId = restaurantId
             ?? SupabaseAuthService.shared.getRestaurantId()
