@@ -157,6 +157,7 @@ struct ProductsView: View {
                         ) {
                             ForEach(products) { product in
                                 ProductCard(product: product)
+                                    .contentShape(Rectangle())
                                     .onTapGesture {
                                         showProductDetail(product)
                                     }
@@ -457,6 +458,7 @@ struct ProductCard: View {
             .padding(.vertical, 12)
         }
         .background(Color.white)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
     }
